@@ -1,0 +1,12 @@
+# VPS 端 frps 配置示例
+# 部署到 /etc/frp/frps.toml
+
+bindPort = 7000
+
+auth.method = "token"
+auth.token = "请替换为强随机 token"
+
+# 允许映射的端口
+allowPorts = [
+  { start = 4725, end = 4725 }
+]

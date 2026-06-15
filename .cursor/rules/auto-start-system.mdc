@@ -1,0 +1,20 @@
+---
+description: 在本项目中改代码或排错时，Agent 必须自动启动系统，禁止让用户手动运行 start.bat
+alwaysApply: true
+---
+
+# 系统自动启动（禁止甩给用户）
+
+用户要求：**不要让他手动启动**。在本仓库内工作时：
+
+1. **先检查** 4725 是否在监听；未运行则 **Agent 自己执行启动**，不要只写「请运行 start.bat」。
+2. **首选** 生产模式（与 `start.bat` 一致）：
+   - `cd` 到项目根目录
+   - `set DATABASE_URL=file:../data/app.db`（PowerShell: `$env:DATABASE_URL='file:../data/app.db'`）
+   - `npx prisma migrate deploy --schema=apps/server/prisma/schema.prisma`（在 `apps/server` 下）
+   - 若改过前端/后端：`npm run build` 或至少 `npm run build:web`
+   - 后台运行：`npm run start:all`（`scripts/supervisor.js`，4725 + Excel桥 + 祥钰 + print-agent）
+3. **开发调试** 可改用 `npm run dev`（web + server），同样由 Agent 后台启动，不要交给用户。
+4. 启动后 **自行验证**：`http://127.0.0.1:4725/inventory` 或 `netstat` 看 4725/4729。
+5. 端口占用时先 `stop.bat` 或结束旧进程，再重启；仍由 Agent 完成。
+6. 回复里只说明「已启动」和访问地址，**不要**把启动步骤当作业布置给用户。

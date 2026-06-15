@@ -1,0 +1,27 @@
+{
+  "name": "jade-inventory-system",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/web",
+    "apps/server",
+    "apps/xiangyu"
+  ],
+  "scripts": {
+    "dev": "concurrently -k --names web,server -c \"#ff2442,#0ea5e9\" \"npm run dev -w @jade/web\" \"npm run dev -w @jade/server\"",
+    "dev:web": "npm run dev -w @jade/web",
+    "dev:server": "npm run dev -w @jade/server",
+    "build": "npm run build:web && npm run build:server",
+    "build:web": "npm run build -w @jade/web",
+    "build:server": "npm run build -w @jade/server",
+    "start": "cross-env NODE_ENV=production npm run start -w @jade/server",
+    "start:all": "node scripts/supervisor.js",
+    "restart": "node scripts/restart.js",
+    "db:generate": "npm run db:generate -w @jade/server",
+    "db:migrate": "npm run db:migrate:deploy -w @jade/server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "cross-env": "^7.0.3"
+  }
+}

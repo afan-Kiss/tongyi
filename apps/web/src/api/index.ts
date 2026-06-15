@@ -1,0 +1,55 @@
+export * from './types'
+export {
+  inventoryApi,
+  operationsApi,
+  mediaApi,
+  settingsApi,
+  excelApi,
+  detailApi,
+  printApi,
+  healthApi,
+} from './endpoints'
+
+import {
+  inventoryApi,
+  operationsApi,
+  mediaApi,
+  settingsApi,
+  excelApi,
+  detailApi,
+  printApi,
+  healthApi,
+} from './endpoints'
+
+/** 兼容旧代码的统一入口 */
+export const api = {
+  health: healthApi.check,
+  stats: inventoryApi.stats,
+  listBracelets: inventoryApi.list,
+  getByCert: inventoryApi.getByCert,
+  updateBracelet: inventoryApi.updateByCert,
+  deleteBracelet: inventoryApi.deleteByCert,
+  outbound: operationsApi.outbound,
+  inbound: operationsApi.inbound,
+  createNew: operationsApi.createNew,
+  registerBracelet: operationsApi.register,
+  excelRowPreview: operationsApi.excelRow,
+  nextCertNo: operationsApi.nextCertNo,
+  revert: operationsApi.revert,
+  excelSnapshot: operationsApi.excelSnapshot,
+  uploadMedia: mediaApi.upload,
+  deleteMedia: mediaApi.delete,
+  getSettings: settingsApi.get,
+  saveSettings: settingsApi.save,
+  getStatus: settingsApi.status,
+  getLabelTemplate: settingsApi.labelTemplate.get,
+  saveLabelTemplate: settingsApi.labelTemplate.save,
+  exportExcel: excelApi.export,
+  importExcel: excelApi.import,
+  excelCertIndexStatus: excelApi.certIndexStatus,
+  refreshCertIndex: excelApi.refreshCertIndex,
+  searchCertIndex: excelApi.searchCertIndex,
+  getDetail: detailApi.get,
+  saveDetail: detailApi.save,
+  printBraceletTag: printApi.braceletTag,
+}

@@ -1,0 +1,38 @@
+import { Router } from 'express'
+import { deleteBraceletByCert } from '../../services/inventory-command.service'
+import { queryByCertNo, queryDashboard, queryList } from '../../services/inventory-query.service'
+import { updateBraceletByCert } from '../../services/bracelet-update.service'
+import { sendErr, sendOk } from '../../utils/api-response'
+
+export const inventoryRouter = Router()
+
+inventoryRouter.get('/stats', async (_req, res) => {
+  sendOk(res, await queryDashboard())
+})
+
+inventoryRouter.get('/', async (req, res) => {
+  sendOk(res, await queryList({
+    q: String(req.query.q || ''),
+    inStockOnly: req.query.inStockOnly === '1',
+    page: Number(req.query.page || 1),
+    pageSize: Number(req.query.pageSize || 50),
+  }))
+})
+
+inventoryRouter.get('/by-cert/:certNo', async (req, res) => {
+  const bracelet = await queryByCertNo(req.params.certNo)
+  if (!bracelet) return sendErr(res, `编号 ${req.params.certNo} 不存在`, 404)
+  sendOk(res, bracelet)
+})
+
+inventoryRouter.patch('/by-cert/:certNo', async (req, res) => {
+  const result = await updateBraceletByCert(req.params.certNo, req.body)
+  if (!result.ok) return sendErr(res, result.message)
+  sendOk(res, result)
+})
+
+inventoryRouter.delete('/by-cert/:certNo', async (req, res) => {
+  const deleted = await deleteBraceletByCert(req.params.certNo)
+  if (!deleted) return sendErr(res, `编号 ${req.params.certNo} 不存在`, 404)
+  sendOk(res, { certNo: deleted.certNo })
+})

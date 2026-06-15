@@ -1,0 +1,40 @@
+{
+  "server": {
+    "port": 4726,
+    "host": "0.0.0.0",
+    "sessionSecret": "请改成随机字符串"
+  },
+  "auth": {
+    "settingsPassword": "admin123"
+  },
+  "shop": {
+    "name": "祥钰珠宝",
+    "cookie": ""
+  },
+  "orders": {
+    "apiUrl": "https://ark.xiaohongshu.com/api/edith/fulfillment/order/page",
+    "cacheTtlMs": 45000
+  },
+  "bridge": {
+    "mode": "http",
+    "url": "http://127.0.0.1:4727/send",
+    "timeoutMs": 30000,
+    "devtoolsPort": 9322,
+    "qianfanDataDir": "E:\\我的软件源码\\千帆中转机器人\\dist\\win-unpacked\\data"
+  },
+  "tunnel": {
+    "publicUrl": "http://你的服务器IP或域名",
+    "note": "Debian 仅做外网入口，frp 反代到你电脑 3080"
+  },
+  "upload": {
+    "maxImageMb": 15
+  },
+  "editor": {
+    "prefaceMessage": "亲，以下是和田玉手镯的实拍图，供您参考，有任何问题随时联系我～",
+    "annotationTags": [
+      "棉", "棉点", "纹裂", "绺裂", "内裂", "水线", "石纹", "黑点", "脏点",
+      "沁色", "色根", "糖色", "皮色", "僵", "闪丝", "晶体", "结构松",
+      "杂色", "絮状", "颗粒感", "抠手", "发干", "油润", "籽料特征", "俄料特征"
+    ]
+  }
+}

@@ -1,0 +1,96 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Bracelet {
+  id            String       @id @default(uuid())
+  certNo        String       @unique
+  /// Excel A-N 基础列（与辅助出库软件一致，仅此部分同步 Excel）
+  arrivalDate   String?
+  batch         String?
+  qty           Int          @default(1)
+  category      String?
+  ringSize      String?
+  cost          String?
+  remark        String?
+  orderNo       String?
+  returnDate    String?
+  soldDate      String?
+  actualPrice   String?
+  salesPerson   String?
+  salesChannel  String?
+  excelRow      Int?
+  excelSheet    String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  detail        BraceletDetail?
+  mediaAssets   MediaAsset[]
+  operationLogs OperationLog[]
+}
+
+/// SQL 专有扩展信息（图片/视频在 MediaAsset，不进 Excel）
+model BraceletDetail {
+  id           String   @id @default(uuid())
+  braceletId   String   @unique
+  bracelet     Bracelet @relation(fields: [braceletId], references: [id], onDelete: Cascade)
+  description  String?
+  material     String?
+  jadeGrade    String?
+  weightGram   String?
+  origin       String?
+  color        String?
+  flawNotes    String?
+  internalNote String?
+  tags         String?
+  extraJson    String   @default("{}")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model MediaAsset {
+  id          String   @id @default(uuid())
+  braceletId  String
+  bracelet    Bracelet @relation(fields: [braceletId], references: [id], onDelete: Cascade)
+  type        String
+  filename    String
+  path        String
+  thumbPath   String?
+  mimeType    String?
+  sizeBytes   Int      @default(0)
+  createdAt   DateTime @default(now())
+}
+
+model OperationLog {
+  id            String   @id @default(uuid())
+  braceletId    String
+  bracelet      Bracelet @relation(fields: [braceletId], references: [id], onDelete: Cascade)
+  certNo        String
+  opType        String
+  snapshotJson  String
+  resultJson    String?
+  excelSynced   Boolean  @default(false)
+  excelSyncMsg  String?
+  reverted      Boolean  @default(false)
+  createdAt     DateTime @default(now())
+}
+
+model LabelTemplate {
+  id          String   @id @default(uuid())
+  name        String   @unique @default("default")
+  widthMm     Float    @default(50)
+  heightMm    Float    @default(30)
+  fieldsJson  String
+  barcodeType String   @default("CODE128")
+  isDefault   Boolean  @default(true)
+  updatedAt   DateTime @updatedAt
+}
+
+model AppSettings {
+  id    String @id @default("singleton")
+  json  String @default("{}")
+}

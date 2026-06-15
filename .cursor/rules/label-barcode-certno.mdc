@@ -1,0 +1,16 @@
+---
+description: 珠宝吊牌打印：条形码与编号一致
+globs: agents/print-agent/**,apps/web/src/**/Label*.tsx,apps/web/src/lib/labelTemplateStorage.ts
+alwaysApply: false
+---
+
+# 标签条形码 = 编号
+
+- 条形码编码内容必须使用 `bracelet.certNo`（编号），扫描结果与标签上「编号:xxx」一致。
+- 禁止将条码与编号拆成不同字段（例如 `certLabel` 与 `certNo` 不同值）。
+- 打印测试时：`certNo` 即编号，也是条码内容（如 `ZQ9527` 扫出来就是 `ZQ9527`）。
+
+# 偏移
+
+- 模板字段：`offsetTopMm` / `offsetBottomMm` / `offsetLeftMm` / `offsetRightMm`（毫米）。
+- 上、左正值向下/右移；下、右正值向上/左移。净位移：`dx = left - right`，`dy = top - bottom`。

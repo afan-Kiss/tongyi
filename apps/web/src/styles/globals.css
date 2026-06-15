@@ -1,0 +1,49 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-xhs-red: #ff2442;
+  --color-xhs-red-soft: #ff6b81;
+  --color-bg-warm: #fdf8f5;
+  --color-card: #ffffff;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #root {
+  width: 100%;
+  max-width: 100%;
+  min-height: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: radial-gradient(circle at top left, #ffe4e9 0, #fdf8f5 40%, #fdf8f5 100%);
+  color: #111827;
+}
+
+.card-clickable {
+  cursor: pointer;
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+.card-clickable:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media print {
+  body * { visibility: hidden; }
+  .print-label, .print-label * { visibility: visible; }
+  .print-label {
+    position: absolute;
+    left: 0;
+    top: 0;
+  }
+}
