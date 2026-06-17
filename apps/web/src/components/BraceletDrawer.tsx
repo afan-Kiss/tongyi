@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Pencil, Trash2, X } from 'lucide-react'
 import type { Bracelet, BraceletDetail, ExcelSyncResult, MediaAsset } from '@/lib/api'
 import { api } from '@/lib/api'
+import { emitInventoryRefresh } from '@/lib/inventoryRefresh'
 import { isPhotoAsset, mediaAssetUrl, mediaThumbUrl } from '@/lib/mediaAsset'
 import { ExcelSyncPanel } from '@/components/ExcelSyncPanel'
 import { InboundPhotoCapture } from '@/components/InboundPhotoCapture'
@@ -105,7 +106,9 @@ export const BraceletDrawer: React.FC<Props> = ({
     try {
       const deletedCert = current.certNo
       await api.deleteBracelet(deletedCert)
+      setCurrent(null)
       onDeleted?.(deletedCert)
+      emitInventoryRefresh()
       onClose()
     } catch (e) {
       setDeleteMsg(e instanceof Error ? e.message : String(e))
@@ -165,6 +168,9 @@ export const BraceletDrawer: React.FC<Props> = ({
           <div className="flex items-start justify-between gap-2">
             <div>
               <h2 className="text-lg font-semibold text-slate-900">{current.certNo}</h2>
+              {current.barcodeValue && current.barcodeValue !== current.certNo && (
+                <p className="text-xs text-slate-500">条形码：{current.barcodeValue}</p>
+              )}
               <p className="text-xs text-slate-500">
                 {current.qty === 1 ? '在库' : '已出库'} · {current.category || '未分类'}
               </p>

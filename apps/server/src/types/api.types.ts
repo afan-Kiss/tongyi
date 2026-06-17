@@ -56,6 +56,8 @@ export interface NewBraceletDto {
   remark?: string
   /** SQL 专有扩展详情，不同步 Excel */
   detail?: BraceletDetailDto
+  /** 吊牌条形码内容（扫码识别用，可与 certNo 不同） */
+  barcodeValue?: string
 }
 
 export interface BraceletDetailDto {

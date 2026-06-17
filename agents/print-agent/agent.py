@@ -263,15 +263,26 @@ def print_bracelet_tag():
     try:
         from label_format import DEFAULT_LABEL_LINES
 
-        width_mm = 25.0
-        height_mm = 70.0
-        lines = DEFAULT_LABEL_LINES
-        fields = None
-        offsets = None
-        compact_feed = False
+        lines = template.get("lines") or DEFAULT_LABEL_LINES
+        width_mm = float(template.get("widthMm") or 25.0)
+        height_mm = float(template.get("heightMm") or 70.0)
+        offsets = _template_offsets(template)
+        compact_feed = bool(template.get("compactFeed"))
+        fields = template.get("fields")
         payload = _bracelet_data(bracelet)
         pqapi = pqapi_available()
         print_meta: dict[str, Any] = {}
+
+        barcode_fmt = next(
+            (str(l.get("format") or "") for l in lines if l.get("kind") == "barcode"),
+            "",
+        )
+        logger.info(
+            "print template: %d lines, barcode=%r, pqapi=%s",
+            len(lines),
+            barcode_fmt[:40],
+            pqapi,
+        )
 
         if pqapi:
             print_meta = print_jewelry_tag_pqapi(

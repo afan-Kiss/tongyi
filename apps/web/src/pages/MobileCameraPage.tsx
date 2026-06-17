@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { Camera } from 'lucide-react'
 import { api } from '@/lib/api'
 import {
+  attachStreamToVideo,
   canUseLiveCamera,
   captureVideoFrame,
   liveCameraBlockedReason,
@@ -26,12 +27,16 @@ export const MobileCameraPage: React.FC = () => {
   const prevCertRef = useRef('')
   const certNoRef = useRef('')
   const cameraActiveRef = useRef(false)
+  const openingCameraRef = useRef(false)
   const cameraBlockedHint = liveCameraBlockedReason()
 
   const stopStream = useCallback(() => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop())
       streamRef.current = null
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null
     }
     cameraActiveRef.current = false
     setCameraActive(false)
@@ -43,31 +48,21 @@ export const MobileCameraPage: React.FC = () => {
       return false
     }
     stopStream()
+    const video = videoRef.current
+    if (!video) return false
+    setCameraActive(true)
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: 'environment' } },
         audio: false,
       })
       streamRef.current = stream
-      const video = videoRef.current
-      if (!video) {
-        stream.getTracks().forEach((t) => t.stop())
-        streamRef.current = null
-        return false
-      }
-      video.srcObject = stream
-      await new Promise<void>((resolve, reject) => {
-        if (video.readyState >= 2) {
-          resolve()
-          return
-        }
-        video.onloadeddata = () => resolve()
-        video.onerror = () => reject(new Error('video load failed'))
-      })
+      await attachStreamToVideo(video, stream, 8000)
       cameraActiveRef.current = true
       setCameraActive(true)
       return true
     } catch {
+      stopStream()
       setStatus(cameraBlockedHint || '无法打开摄像头，请改用 HTTPS 访问')
       return false
     }
@@ -78,6 +73,7 @@ export const MobileCameraPage: React.FC = () => {
     if (code === certNoRef.current) return
     certNoRef.current = code
     setCertNo(code)
+    if (openingCameraRef.current) return
     if (!code) {
       setStatus('等待电脑填写编号…')
       return
@@ -91,7 +87,8 @@ export const MobileCameraPage: React.FC = () => {
   }, [])
 
   const onReopenCamera = useCallback(async () => {
-    if (openingCamera) return
+    if (openingCameraRef.current) return
+    openingCameraRef.current = true
     setOpeningCamera(true)
     setStatus('正在打开摄像头…')
     try {
@@ -101,9 +98,10 @@ export const MobileCameraPage: React.FC = () => {
         setStatus(code ? `编号 ${code} · 点下方按钮拍照` : '等待电脑填写编号…')
       }
     } finally {
+      openingCameraRef.current = false
       setOpeningCamera(false)
     }
-  }, [openingCamera, startCamera])
+  }, [startCamera])
 
   useEffect(() => {
     if (!sessionId) {
@@ -212,6 +210,11 @@ export const MobileCameraPage: React.FC = () => {
     <div className="flex min-h-[100dvh] flex-col bg-slate-900 text-white">
       <header className="shrink-0 px-4 py-3 text-center">
         <p className="text-xs text-slate-400">手机拍照 · 保持此页开启，换编号不用重扫</p>
+        {window.isSecureContext && window.location.protocol === 'https:' && !window.location.hostname.includes('duckdns') && (
+          <p className="mt-1 text-[10px] leading-relaxed text-slate-500">
+            内网 HTTPS：若摄像头打不开，先点浏览器「高级」→「继续访问」信任证书
+          </p>
+        )}
         {certNo ? (
           <p className="mt-1 text-sm font-semibold tracking-wider">{certNo}</p>
         ) : (
@@ -231,10 +234,10 @@ export const MobileCameraPage: React.FC = () => {
           autoPlay
           playsInline
           muted
-          className={`h-full w-full object-cover ${cameraActive ? 'block' : 'hidden'}`}
+          className={`h-full w-full object-cover ${cameraActive ? 'opacity-100' : 'opacity-0'}`}
         />
         {!cameraActive && (
-          <div className="flex h-full min-h-[50dvh] flex-col items-center justify-center px-4 text-center text-slate-400">
+          <div className="absolute inset-0 flex flex-col items-center justify-center px-4 text-center text-slate-400">
             <Camera size={40} className="mb-3 opacity-70" />
             <p className="text-sm">{status}</p>
             {canUseLiveCamera() && (
@@ -268,7 +271,9 @@ export const MobileCameraPage: React.FC = () => {
         >
           {shooting ? '处理中…' : certNo ? '拍一张' : '请先填编号'}
         </button>
-        {status && <p className="text-center text-xs text-slate-400">{status}</p>}
+        {status && cameraActive && (
+          <p className="text-center text-xs text-slate-400">{status}</p>
+        )}
       </div>
 
       <style>{`

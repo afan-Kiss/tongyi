@@ -29,6 +29,7 @@ export const api = {
   stats: inventoryApi.stats,
   listBracelets: inventoryApi.list,
   getByCert: inventoryApi.getByCert,
+  getByCertDbOnly: (certNo: string) => inventoryApi.getByCert(certNo, { dbOnly: true }),
   updateBracelet: inventoryApi.updateByCert,
   deleteBracelet: inventoryApi.deleteByCert,
   outbound: operationsApi.outbound,

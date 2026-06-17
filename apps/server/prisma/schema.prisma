@@ -10,6 +10,8 @@ datasource db {
 model Bracelet {
   id            String       @id @default(uuid())
   certNo        String       @unique
+  /// 吊牌条形码内容（与 certNo 可不同，供扫码枪识别）
+  barcodeValue  String?
   /// Excel A-N 基础列（与辅助出库软件一致，仅此部分同步 Excel）
   arrivalDate   String?
   batch         String?

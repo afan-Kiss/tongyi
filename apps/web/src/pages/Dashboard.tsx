@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, type DashboardStats } from '@/lib/api'
+import { emitInventoryRefresh } from '@/lib/inventoryRefresh'
 import { StatCard } from '@/components/ui/StatCard'
 import { BraceletDrawer } from '@/components/BraceletDrawer'
 
@@ -73,10 +74,22 @@ export const DashboardPage: React.FC = () => {
         bracelet={bracelet}
         open={drawer.open}
         onClose={() => setDrawer({ open: false, certNo: '' })}
-        onDeleted={() => {
+        onDeleted={(certNo) => {
+          const deletedQty = bracelet?.certNo === certNo ? bracelet?.qty : undefined
           setDrawer({ open: false, certNo: '' })
           setBracelet(null)
+          setStats((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  inStock: deletedQty === 1 ? Math.max(0, prev.inStock - 1) : prev.inStock,
+                  outOfStock: deletedQty === 0 ? Math.max(0, prev.outOfStock - 1) : prev.outOfStock,
+                  recentLogs: prev.recentLogs.filter((l) => l.certNo !== certNo),
+                }
+              : prev,
+          )
           loadStats()
+          emitInventoryRefresh()
         }}
       />
     </div>

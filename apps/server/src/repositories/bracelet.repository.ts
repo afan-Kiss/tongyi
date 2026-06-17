@@ -12,6 +12,53 @@ export const braceletRepo = {
     })
   },
 
+  findByBarcode(barcodeValue: string) {
+    const code = barcodeValue.trim()
+    if (!code) return Promise.resolve(null)
+    return prisma.bracelet.findFirst({
+      where: { barcodeValue: code },
+      include: {
+        detail: true,
+        mediaAssets: { orderBy: { createdAt: 'desc' } },
+      },
+    })
+  },
+
+  /** 扫码枪：编号或条形码，兼容大小写、空白、回车与前导零 */
+  findByScanCode(raw: string) {
+    const code = raw.replace(/[\r\n\0]+/g, '').trim()
+    if (!code) return Promise.resolve(null)
+    const compact = code.replace(/\s+/g, '')
+    const certVariants = [
+      ...new Set([code, compact, code.toUpperCase(), compact.toUpperCase()].filter(Boolean)),
+    ].map((v) => normalizeCertNo(v))
+
+    const barcodeVariants = new Set<string>([code, compact, code.toUpperCase(), compact.toUpperCase()])
+    for (const v of [code, compact]) {
+      if (/^\d+$/.test(v)) {
+        const stripped = v.replace(/^0+/, '') || '0'
+        barcodeVariants.add(stripped)
+        const baseLen = Math.max(stripped.length, v.length)
+        for (let len = baseLen; len <= baseLen + 3; len++) {
+          barcodeVariants.add(stripped.padStart(len, '0'))
+        }
+      }
+    }
+
+    return prisma.bracelet.findFirst({
+      where: {
+        OR: [
+          ...certVariants.map((v) => ({ certNo: v })),
+          ...[...barcodeVariants].map((v) => ({ barcodeValue: v })),
+        ],
+      },
+      include: {
+        detail: true,
+        mediaAssets: { orderBy: { createdAt: 'desc' } },
+      },
+    })
+  },
+
   findMany(where: Record<string, unknown>, page: number, pageSize: number) {
     return Promise.all([
       prisma.bracelet.findMany({

@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { deleteBraceletByCert } from '../../services/inventory-command.service'
-import { queryByCertNo, queryDashboard, queryList } from '../../services/inventory-query.service'
+import { findBraceletInDb, queryByCertNo, queryDashboard, queryList } from '../../services/inventory-query.service'
 import { updateBraceletByCert } from '../../services/bracelet-update.service'
 import { sendErr, sendOk } from '../../utils/api-response'
 
@@ -20,8 +20,11 @@ inventoryRouter.get('/', async (req, res) => {
 })
 
 inventoryRouter.get('/by-cert/:certNo', async (req, res) => {
-  const bracelet = await queryByCertNo(req.params.certNo)
-  if (!bracelet) return sendErr(res, `编号 ${req.params.certNo} 不存在`, 404)
+  const dbOnly = req.query.dbOnly === '1' || req.query.dbOnly === 'true'
+  const bracelet = dbOnly
+    ? await findBraceletInDb(req.params.certNo)
+    : await queryByCertNo(req.params.certNo)
+  if (!bracelet) return sendErr(res, `未找到编号或条形码 ${req.params.certNo}`, 404)
   sendOk(res, bracelet)
 })
 

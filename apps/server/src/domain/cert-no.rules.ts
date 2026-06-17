@@ -1,7 +1,7 @@
 /** 编号解析与生成（与 CERT_NO_REGEX 前缀一致，长前缀优先匹配） */
 export const CERT_PREFIXES = [
   'DA', 'DB', 'DC', 'DD', 'DE', 'DF', 'DG', 'DH', 'DI', 'DK', 'DL', 'DM', 'DN', 'DP', 'DQ', 'DR', 'DW',
-  'ZQ', 'F', 'D',
+  'ZF', 'ZQ', 'F', 'D',
 ] as const
 
 export function parseCertNoParts(certNo: string): { prefix: string; num: number; width: number } | null {
@@ -20,7 +20,7 @@ export function parseCertNoParts(certNo: string): { prefix: string; num: number;
 
 export function defaultDigitWidth(prefix: string): number {
   if (prefix === 'F') return 5
-  if (prefix === 'ZQ') return 4
+  if (prefix === 'ZQ' || prefix === 'ZF') return 4
   return 3
 }
 
@@ -39,5 +39,15 @@ export function certMatchesSearchQuery(certNo: string, query: string): boolean {
     if (!prefix.startsWith(q)) continue
     if (cert.startsWith(prefix)) return false
   }
+  return true
+}
+
+/** 模糊包含匹配：仅纯数字片段（如 9527→ZQ9527），带字母的必须前缀匹配 */
+export function certMatchesContainsSearchQuery(certNo: string, query: string): boolean {
+  const q = query.trim().toUpperCase()
+  const cert = certNo.trim().toUpperCase()
+  if (!q || !cert.includes(q)) return false
+  if (cert.startsWith(q)) return certMatchesSearchQuery(cert, q)
+  if (!/^\d+$/.test(q)) return false
   return true
 }

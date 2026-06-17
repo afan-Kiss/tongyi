@@ -6,18 +6,12 @@ import type { Bracelet, LabelLine, LabelTemplate } from '@/lib/api'
 
 import {
 
-  barcodeCaption,
-
-  buildLabelData,
-
+  literalBarcodeContent,
   LABEL_CANVAS_REF_H,
   LABEL_CANVAS_REF_W,
-
   lineFontCss,
-
   lineFontStyleAttr,
-
-  resolveTextLines,
+  resolveLiteralTextLines,
 } from '@/lib/labelFormat'
 
 import { labelContentShift } from '@/lib/labelTemplateStorage'
@@ -55,8 +49,13 @@ function leftPercent(xPx: number) {
 function linePositionStyle(line: LabelLine): React.CSSProperties {
   const ox = line.offsetXPx ?? 0
   const oy = line.offsetYPx ?? 0
-  if (!ox && !oy) return {}
-  return { transform: `translate(${ox}px, ${oy}px)` }
+  const align = line.textAlign === 'left' ? 'left' as const : 'center' as const
+  const base: React.CSSProperties =
+    align === 'left'
+      ? { textAlign: 'left', paddingLeft: `${ox}px`, width: '100%' }
+      : {}
+  if (!ox && !oy && align === 'center') return base
+  return { ...base, transform: `translate(${align === 'left' ? 0 : ox}px, ${oy}px)` }
 }
 
 
@@ -65,14 +64,9 @@ export const LabelDesigner: React.FC<Props> = ({ bracelet, template, side = 'pre
 
   const barcodeRef = useRef<SVGSVGElement>(null)
 
-  const labelData = useMemo(() => buildLabelData(bracelet), [bracelet])
-
   const textLines = useMemo(
-
-    () => resolveTextLines(template.lines, labelData),
-
-    [template.lines, labelData],
-
+    () => resolveLiteralTextLines(template.lines),
+    [template.lines],
   )
 
   const barcodeLine = template.lines.find((l) => l.kind === 'barcode' && l.show)
@@ -87,13 +81,15 @@ export const LabelDesigner: React.FC<Props> = ({ bracelet, template, side = 'pre
 
 
 
+  const barcodeDigits = literalBarcodeContent(barcodeLine)
+
   useEffect(() => {
 
-    if (!barcodeRef.current || !showBarcode) return
+    if (!barcodeRef.current || !showBarcode || !barcodeDigits) return
 
     try {
 
-      JsBarcode(barcodeRef.current, labelData.certNo, {
+      JsBarcode(barcodeRef.current, barcodeDigits, {
         format: template.barcodeType as 'CODE128',
         width: 2,
         height: barcodeLine?.barcodeHeight ?? 57,
@@ -109,11 +105,11 @@ export const LabelDesigner: React.FC<Props> = ({ bracelet, template, side = 'pre
 
     }
 
-  }, [labelData.certNo, template.barcodeType, showBarcode, barcodeLine?.barcodeHeight])
+  }, [barcodeDigits, template.barcodeType, showBarcode, barcodeLine?.barcodeHeight])
 
 
 
-  const caption = barcodeCaption(barcodeLine, labelData)
+  const caption = literalBarcodeContent(barcodeLine)
 
 
 
@@ -171,7 +167,7 @@ export const LabelDesigner: React.FC<Props> = ({ bracelet, template, side = 'pre
               line.yPx != null ? (
                 <p
                   key={line.id}
-                  className="absolute left-0 right-0 px-1"
+                  className={`absolute left-0 right-0 px-1 ${line.textAlign === 'left' ? 'text-left' : 'text-center'}`}
                   style={{
                     top: topPercent(line.yPx),
                     ...renderLineStyle(line),
@@ -259,15 +255,14 @@ export function printLabel(bracelet: Bracelet, template: LabelTemplate) {
 
   if (!win) return
 
-  const labelData = buildLabelData(bracelet)
-
-  const textLines = resolveTextLines(template.lines, labelData)
+  const textLines = resolveLiteralTextLines(template.lines)
 
   const barcodeLine = template.lines.find((l) => l.kind === 'barcode' && l.show)
 
   const shift = labelContentShift(template)
 
-  const caption = barcodeCaption(barcodeLine, labelData)
+  const caption = literalBarcodeContent(barcodeLine)
+  const barcodeDigits = caption
 
   const fixedLayout = template.lines.some((l) => l.yPx != null)
 
@@ -277,13 +272,13 @@ export function printLabel(bracelet: Bracelet, template: LabelTemplate) {
 
     const barcodeHtml =
 
-      barcodeLine && barcodeLine.yPx != null && caption
+      barcodeLine && barcodeLine.yPx != null && barcodeDigits
 
         ? `<div style="position:absolute;left:0;right:0;top:${topPercent(barcodeLine.yPx)};text-align:center">
 
             <svg id="bc" style="height:51px"></svg>
 
-            <p style="${lineFontStyleAttr(barcodeLine)};margin:2px 0">${caption.replace(/</g, '&lt;')}</p>
+            <p style="${lineFontStyleAttr(barcodeLine)};margin:2px 0">${(caption ?? barcodeDigits).replace(/</g, '&lt;')}</p>
 
           </div>`
 
@@ -305,7 +300,7 @@ export function printLabel(bracelet: Bracelet, template: LabelTemplate) {
 
     win.document.write(`
 
-      <html><head><title>打印 ${labelData.certNo}</title>
+      <html><head><title>打印 ${bracelet.certNo}</title>
 
       <style>
 
@@ -331,7 +326,7 @@ export function printLabel(bracelet: Bracelet, template: LabelTemplate) {
 
       <script>
 
-        ${barcodeLine ? `JsBarcode("#bc", ${JSON.stringify(labelData.certNo)}, { format: "CODE128", width:2, height:51, displayValue:false, margin:8, background:"#ffffff", lineColor:"#000000" });` : ''}
+        ${barcodeLine && barcodeDigits ? `JsBarcode("#bc", ${JSON.stringify(barcodeDigits)}, { format: "CODE128", width:2, height:51, displayValue:false, margin:8, background:"#ffffff", lineColor:"#000000" });` : ''}
 
         setTimeout(() => { window.print(); window.close(); }, 300);
 
@@ -371,7 +366,7 @@ export function printLabel(bracelet: Bracelet, template: LabelTemplate) {
 
   win.document.write(`
 
-    <html><head><title>打印 ${labelData.certNo}</title>
+    <html><head><title>打印 ${bracelet.certNo}</title>
 
     <style>
 
@@ -395,7 +390,7 @@ export function printLabel(bracelet: Bracelet, template: LabelTemplate) {
 
     <script>
 
-      ${barcodeLine ? `JsBarcode("#bc", ${JSON.stringify(labelData.certNo)}, { format: "CODE128", width:2, height:51, displayValue:false, margin:8, background:"#ffffff", lineColor:"#000000" });` : ''}
+      ${barcodeLine && barcodeDigits ? `JsBarcode("#bc", ${JSON.stringify(barcodeDigits)}, { format: "CODE128", width:2, height:51, displayValue:false, margin:8, background:"#ffffff", lineColor:"#000000" });` : ''}
 
       setTimeout(() => { window.print(); window.close(); }, 300);
 

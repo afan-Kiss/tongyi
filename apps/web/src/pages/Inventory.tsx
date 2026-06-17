@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { api, type Bracelet } from '@/lib/api'
 import { isPhotoAsset, mediaThumbUrl } from '@/lib/mediaAsset'
 import { BraceletDrawer } from '@/components/BraceletDrawer'
+import { onInventoryRefresh } from '@/lib/inventoryRefresh'
 
 export const InventoryPage: React.FC = () => {
   const [q, setQ] = useState('')
@@ -17,6 +18,8 @@ export const InventoryPage: React.FC = () => {
   }
 
   useEffect(() => { load() }, [q, inStockOnly])
+
+  useEffect(() => onInventoryRefresh(load), [q, inStockOnly])
 
   const openItem = async (certNo: string) => {
     const r = await api.getByCert(certNo)

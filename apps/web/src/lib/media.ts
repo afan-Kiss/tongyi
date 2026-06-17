@@ -15,7 +15,7 @@ export function canUseLiveCamera(): boolean {
 export function liveCameraBlockedReason(): string {
   if (window.isSecureContext) return ''
   if (isMobileDevice()) {
-    return '当前为 HTTP 访问，手机无法实时预览连拍。请改用 HTTPS 外网地址扫码，或用「从相册选图」。'
+    return 'HTTP 下手机无法打开实时摄像头。请扫电脑上的 HTTPS 二维码（内网 4730 端口），首次需在浏览器点「高级」→「继续访问」信任证书。'
   }
   return ''
 }
@@ -36,6 +36,38 @@ async function loadImage(src: string): Promise<HTMLImageElement> {
     img.onerror = reject
     img.src = src
   })
+}
+
+export async function attachStreamToVideo(
+  video: HTMLVideoElement,
+  stream: MediaStream,
+  timeoutMs = 8000,
+): Promise<void> {
+  video.srcObject = stream
+  await video.play().catch(() => {})
+  if (video.readyState >= 2) return
+  await new Promise<void>((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error('摄像头加载超时')), timeoutMs)
+    const done = () => {
+      window.clearTimeout(timer)
+      resolve()
+    }
+    video.onloadeddata = done
+    video.onloadedmetadata = done
+  })
+}
+
+export async function startLiveCamera(
+  video: HTMLVideoElement,
+  timeoutMs = 8000,
+): Promise<MediaStream | null> {
+  if (!navigator.mediaDevices?.getUserMedia) return null
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: { ideal: 'environment' } },
+    audio: false,
+  })
+  await attachStreamToVideo(video, stream, timeoutMs)
+  return stream
 }
 
 export function captureVideoFrame(video: HTMLVideoElement, maxSide = 1280, quality = 0.82): string | null {

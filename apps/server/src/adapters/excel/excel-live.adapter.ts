@@ -241,6 +241,16 @@ export interface CertIndexEntry {
   batch?: string
   category?: string
   qty?: number
+  arrivalDate?: string
+  ringSize?: string
+  cost?: string
+  remark?: string
+  orderNo?: string
+  returnDate?: string
+  soldDate?: string
+  actualPrice?: string
+  salesPerson?: string
+  salesChannel?: string
 }
 
 export async function fetchCertIndexFromBridge(refresh = false): Promise<{

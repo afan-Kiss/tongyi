@@ -1,13 +1,40 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
+
 import { Link, useNavigate } from 'react-router-dom'
+
 import { AnimatedTabs } from '@/components/ui/AnimatedTabs'
+
 import { BraceletDrawer } from '@/components/BraceletDrawer'
+
 import { ExcelSyncPanel } from '@/components/ExcelSyncPanel'
+
+import { ScanNotFoundDialog } from '@/components/ScanNotFoundDialog'
+
 import { inventoryApi } from '@/api/endpoints'
+
+import { emitInventoryRefresh } from '@/lib/inventoryRefresh'
+
 import { useScanWorkbench } from '@/hooks/useScanWorkbench'
+
 import type { Bracelet } from '@/api/types'
 
 type ScanMode = 'outbound' | 'inbound' | 'query'
+
+function normalizeScanInput(raw: string): string {
+  return raw.replace(/[\r\n\0]+/g, '').trim()
+}
+
+function scanStatusLabel(scanned: string, b: Bracelet): string {
+  const code = scanned.trim()
+  const barcode = b.barcodeValue?.trim()
+  if (barcode && code === barcode && code !== b.certNo) {
+    return `条形码 ${code} → 编号 ${b.certNo}`
+  }
+  if (barcode && barcode !== b.certNo && code.toUpperCase() === b.certNo.toUpperCase()) {
+    return `编号 ${b.certNo}（条形码 ${barcode}）`
+  }
+  return `识别：${b.certNo}`
+}
 
 export const ScanPage: React.FC = () => {
   const [mode, setMode] = useState<ScanMode>('outbound')
@@ -15,6 +42,7 @@ export const ScanPage: React.FC = () => {
   const [status, setStatus] = useState('')
   const [bracelet, setBracelet] = useState<Bracelet | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [notFoundScanned, setNotFoundScanned] = useState<string | null>(null)
   const [pendingOutbound, setPendingOutbound] = useState<Bracelet | null>(null)
   const [priceText, setPriceText] = useState('')
   const [orderNo, setOrderNo] = useState('')
@@ -36,45 +64,54 @@ export const ScanPage: React.FC = () => {
     setTimeout(() => inputRef.current?.focus(), 50)
   }, [])
 
-  const handleScan = async (certNo: string) => {
-    const code = certNo.trim().toUpperCase()
-    if (!code) return
-    setStatus(`识别：${code}`)
-    clearExcelSync()
-    try {
-      const r = await inventoryApi.getByCert(code)
-      const b = r.data
-      setBracelet(b)
-      setLastCertNo(code)
+  const openFound = useCallback((scanned: string, b: Bracelet) => {
+    setBracelet(b)
+    setLastCertNo(b.certNo)
+    setNotFoundScanned(null)
+    setDrawerOpen(true)
 
-      if (mode === 'query') {
-        setDrawerOpen(true)
-        refocus()
-        return
-      }
-      if (mode === 'outbound') {
-        if (b.qty === 0) { setStatus(`${code} 已出库`); refocus(); return }
+    const label = scanStatusLabel(scanned, b)
+    if (mode === 'outbound') {
+      if (b.qty === 0) {
+        setStatus(`${label} · 已出库，无法再次出库`)
+        setPendingOutbound(null)
+      } else {
+        setStatus(label)
         setPendingOutbound(b)
-        return
       }
-      if (mode === 'inbound') {
-        if (b.qty === 1) {
-          setStatus(`${code} 已在库，无需入库`)
-          refocus()
-          return
-        }
-        setStatus(`${code} 已售出，跳转退货入库…`)
-        navigate(`/inventory/inbound?type=return&certNo=${encodeURIComponent(code)}`)
-        return
+      return
+    }
+    if (mode === 'inbound') {
+      if (b.qty === 1) {
+        setStatus(`${label} · 已在库，无需退货入库`)
+      } else {
+        setStatus(`${label} · 已售出，可确认退货入库`)
       }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      if (mode === 'inbound' && msg.includes('不存在')) {
-        setStatus(`${code} 未在系统中，跳转标签入库…`)
-        navigate(`/inventory/inbound?type=register&certNo=${encodeURIComponent(code)}`)
-        return
-      }
-      setStatus(msg)
+      setPendingOutbound(null)
+      return
+    }
+    setStatus(label)
+    setPendingOutbound(null)
+  }, [mode, setLastCertNo])
+
+  const handleScan = async (raw: string) => {
+    const scanned = normalizeScanInput(raw)
+    if (!scanned) return
+
+    setStatus(`识别：${scanned}`)
+    setNotFoundScanned(null)
+    clearExcelSync()
+
+    try {
+      const r = await inventoryApi.getByCert(scanned)
+      openFound(scanned, r.data)
+      refocus()
+    } catch {
+      setBracelet(null)
+      setDrawerOpen(false)
+      setPendingOutbound(null)
+      setNotFoundScanned(scanned)
+      setStatus('')
       refocus()
     }
   }
@@ -110,6 +147,17 @@ export const ScanPage: React.FC = () => {
     refocus()
   }
 
+  const goReturnInbound = () => {
+    if (!bracelet) return
+    navigate(`/inventory/inbound?type=return&certNo=${encodeURIComponent(bracelet.certNo)}`)
+  }
+
+  const goRegisterInbound = () => {
+    const code = notFoundScanned || ''
+    setNotFoundScanned(null)
+    navigate(`/inventory/inbound?type=register&certNo=${encodeURIComponent(code)}`)
+  }
+
   return (
     <div className="space-y-4">
       <h2 className="text-xl font-semibold text-slate-900">扫码工作台</h2>
@@ -123,7 +171,7 @@ export const ScanPage: React.FC = () => {
         onChange={(k) => { setMode(k as ScanMode); refocus() }}
       />
       <div className="rounded-2xl border border-white/70 bg-white/80 p-6 text-center shadow-sm">
-        <p className="text-sm text-slate-500">请将光标保持在此区域，使用扫码枪扫描编号</p>
+        <p className="text-sm text-slate-500">扫描吊牌条形码或编号，均可识别</p>
         <input
           ref={inputRef}
           className="mt-3 w-full rounded-xl border border-rose-100 bg-rose-50/30 px-4 py-3 text-center text-lg font-semibold tracking-wider text-slate-800 outline-none focus:border-rose-300"
@@ -144,6 +192,7 @@ export const ScanPage: React.FC = () => {
           </p>
         )}
       </div>
+
       {(excelLoading || excelSync || partialSuccess) && (
         <ExcelSyncPanel
           result={excelSync}
@@ -155,9 +204,26 @@ export const ScanPage: React.FC = () => {
           onClose={clearExcelSync}
         />
       )}
+
+      {mode === 'inbound' && bracelet && bracelet.qty === 0 && drawerOpen && (
+        <div className="rounded-2xl border border-emerald-100 bg-emerald-50/40 p-4 shadow-sm">
+          <p className="text-sm text-slate-700">该货品已售出，确认要退货入库吗？</p>
+          <button
+            type="button"
+            onClick={goReturnInbound}
+            className="mt-3 w-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 py-2.5 text-sm font-semibold text-white"
+          >
+            去退货入库 · {bracelet.certNo}
+          </button>
+        </div>
+      )}
+
       {pendingOutbound && (
         <div className="rounded-2xl border border-rose-100 bg-white p-4 shadow-sm">
           <h3 className="font-semibold text-slate-900">确认出库 · {pendingOutbound.certNo}</h3>
+          {pendingOutbound.barcodeValue && pendingOutbound.barcodeValue !== pendingOutbound.certNo && (
+            <p className="mt-1 text-xs text-slate-500">条形码：{pendingOutbound.barcodeValue}</p>
+          )}
           <div className="mt-3 grid gap-2">
             <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="实际售价 *" value={priceText} onChange={(e) => setPriceText(e.target.value)} />
             <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="订单号" value={orderNo} onChange={(e) => setOrderNo(e.target.value)} />
@@ -169,11 +235,27 @@ export const ScanPage: React.FC = () => {
           </div>
         </div>
       )}
+
       <BraceletDrawer
         bracelet={bracelet}
         open={drawerOpen}
         onClose={() => { setDrawerOpen(false); refocus() }}
         showLabelPrint
+        onDeleted={(certNo) => {
+          setBracelet(null)
+          setDrawerOpen(false)
+          if (bracelet?.certNo === certNo) setStatus(`已删除 ${certNo}`)
+          emitInventoryRefresh()
+          refocus()
+        }}
+      />
+
+      <ScanNotFoundDialog
+        open={notFoundScanned !== null}
+        scanned={notFoundScanned || ''}
+        mode={mode}
+        onClose={() => { setNotFoundScanned(null); refocus() }}
+        onRegister={mode === 'inbound' ? goRegisterInbound : undefined}
       />
     </div>
   )

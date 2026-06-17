@@ -16,15 +16,16 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 
-from label_format import LABEL_CANVAS_REF_H, build_label_data, render_label_format, resolve_lines
+from label_format import LABEL_CANVAS_REF_H, build_label_data, resolve_lines
 
 
 
 DPI = 203
 
 OFFICIAL_BARCODE_HEIGHT = 62
-BARCODE_MAX_WIDTH = 192
-BARCODE_QUIET_MODULES = 8
+BARCODE_MAX_WIDTH = 196
+BARCODE_QUIET_MODULES = 6
+BARCODE_SIDE_MARGIN = 4
 
 
 
@@ -90,13 +91,13 @@ def _font(
 
     *,
 
-    font_family: str = "msyh",
+    font_family: str = "simhei",
 
     bold: bool = False,
 
 ) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
 
-    regular, bold_path = FONT_REGISTRY.get(font_family, FONT_REGISTRY["msyh"])
+    regular, bold_path = FONT_REGISTRY.get(font_family, FONT_REGISTRY["simhei"])
 
     path = bold_path if bold else regular
 
@@ -181,6 +182,32 @@ def _draw_centered(
     return y + text_h
 
 
+def _draw_left(
+    draw: ImageDraw.ImageDraw,
+    y: int,
+    text: str,
+    font,
+    canvas_w: int,
+    dx: int = 0,
+    margin_x: int = 8,
+    offset_x: int = 0,
+) -> int:
+    box = draw.textbbox((0, 0), text, font=font)
+    text_h = box[3] - box[1]
+    x = max(4, margin_x + dx + offset_x)
+    draw.text((x, y - box[1]), text, fill="black", font=font)
+    return y + text_h
+
+
+def _line_text_align(line: dict[str, Any]) -> str:
+    align = str(line.get("textAlign") or "").lower()
+    if align in ("left", "center"):
+        return align
+    if line.get("id") in ("cert", "ring", "price"):
+        return "center"
+    return "center"
+
+
 def _line_offset_x(line: dict[str, Any]) -> int:
     return int(line.get("offsetXPx") or 0)
 
@@ -213,7 +240,7 @@ def _barcode_for_label(
     import barcode
     from barcode.writer import ImageWriter
 
-    text = (code or "").strip().upper()
+    text = (code or "").strip()
     if not text:
         raise ValueError("empty barcode")
 
@@ -378,25 +405,33 @@ def render_jewelry_tag_png(
     flow_lines = [l for l in template_lines if l.get("show", True) and l.get("yPx") is None]
 
     def _render_barcode(line: dict[str, Any], y_pos: int) -> int:
-        cert_no = label_data.get("certNo") or ""
-        if not cert_no:
+        barcode_data = str(line.get("format") or "").strip()
+        if not barcode_data:
             return y_pos
         size = max(int(line.get("size") or 12), 10)
-        bold = bool(line.get("bold"))
-        font_family = str(line.get("fontFamily") or "msyh")
-        bx = max(2, int(line.get("xPx") or 4) + dx)
-        max_w = max(40, canvas_w - bx - 2)
+        bold = bool(line.get("bold", True))
+        font_family = str(line.get("fontFamily") or "simhei")
+        side_margin = BARCODE_SIDE_MARGIN
+        max_w = max(40, canvas_w - side_margin * 2)
         target_h = int(line.get("barcodeHeight") or OFFICIAL_BARCODE_HEIGHT)
-        bc = _barcode_for_label(cert_no, max_width=max_w, target_height=target_h)
-        img.paste(bc, (bx, y_pos + _line_offset_y(line)))
+        bc = _barcode_for_label(barcode_data, max_width=max_w, target_height=target_h)
+        stretch = float(line.get("barcodeStretchX") or 1)
+        if stretch > 1.01:
+            new_w = min(int(bc.width * stretch), max_w)
+            if new_w > bc.width:
+                bc = bc.resize((new_w, bc.height), Image.Resampling.NEAREST)
+                bc = _binarize_barcode(bc)
+        paste_x = max(side_margin, (canvas_w - bc.width) // 2 + dx)
+        if line.get("xPx") is not None:
+            paste_x = max(side_margin, int(line.get("xPx") or side_margin) + dx)
+        img.paste(bc, (paste_x, y_pos + _line_offset_y(line)))
         cap_gap = max(0, int(line.get("captionGapPx") or 1))
         cap_y = y_pos + bc.height + cap_gap
-        code_text = render_label_format(str(line.get("format") or "{certNo}"), label_data)
-        if code_text:
+        if barcode_data:
             cap_y = _draw_centered(
                 draw,
                 cap_y,
-                code_text,
+                barcode_data,
                 _font(size, font_family=font_family, bold=bold),
                 canvas_w,
                 dx,
@@ -406,20 +441,17 @@ def render_jewelry_tag_png(
 
     def _render_text(line: dict[str, Any], y_pos: int) -> int:
         size = max(int(line.get("size") or 14), 10)
-        bold = bool(line.get("bold"))
-        font_family = str(line.get("fontFamily") or "msyh")
-        text = render_label_format(str(line.get("format") or ""), label_data)
+        bold = bool(line.get("bold", True))
+        font_family = str(line.get("fontFamily") or "simhei")
+        text = str(line.get("format") or "").strip()
         if not text:
             return y_pos
-        return _draw_centered(
-            draw,
-            y_pos + _line_offset_y(line),
-            text,
-            _font(size, font_family=font_family, bold=bold),
-            canvas_w,
-            dx,
-            _line_offset_x(line),
-        )
+        font = _font(size, font_family=font_family, bold=bold)
+        y = y_pos + _line_offset_y(line)
+        ox = _line_offset_x(line)
+        if _line_text_align(line) == "left":
+            return _draw_left(draw, y, text, font, canvas_w, dx, margin_x=8, offset_x=ox)
+        return _draw_centered(draw, y, text, font, canvas_w, dx, ox)
 
     for line in fixed_lines:
         kind = str(line.get("kind") or "text")
@@ -439,7 +471,7 @@ def render_jewelry_tag_png(
         kind = str(line.get("kind") or "text")
         size = max(int(line.get("size") or 14), 10)
         bold = bool(line.get("bold"))
-        font_family = str(line.get("fontFamily") or "msyh")
+        font_family = str(line.get("fontFamily") or "simhei")
 
         if kind == "barcode":
             if side not in ("back", "both"):
@@ -450,12 +482,14 @@ def render_jewelry_tag_png(
         if side not in ("front", "both"):
             continue
 
-        text = render_label_format(str(line.get("format") or ""), label_data)
+        text = str(line.get("format") or "").strip()
         if not text:
             continue
-        flow_bottom = _draw_centered(
-            draw, flow_bottom, text, _font(size, font_family=font_family, bold=bold), canvas_w, dx
-        ) + 6
+        font = _font(size, font_family=font_family, bold=bold)
+        if _line_text_align(line) == "left":
+            flow_bottom = _draw_left(draw, flow_bottom, text, font, canvas_w, dx, margin_x=8) + 6
+        else:
+            flow_bottom = _draw_centered(draw, flow_bottom, text, font, canvas_w, dx) + 6
 
 
 

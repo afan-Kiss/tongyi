@@ -1,6 +1,7 @@
-import { loadEnv, getPort, getDataDir } from './config/env'
+import { loadEnv, getPort, getDataDir, getMobileHttpsPort } from './config/env'
 import { createApp } from './app'
 import { prisma } from './lib/prisma'
+import { startMobileHttpsServer } from './lib/mobile-https'
 import { ensureDefaultLabelTemplate } from './services/settings.service'
 import { scheduleCertIndexWarmup } from './services/excel-cert-index.service'
 import {
@@ -42,12 +43,19 @@ async function main() {
     const mode = webMounted ? 'API + 前端静态' : '仅 API（开发模式或未构建前端）'
     console.log(`[backend] http://0.0.0.0:${port} (${mode})`)
     console.log('[backend] API: /api/v1/*')
+    const httpsPort = getMobileHttpsPort()
+    if (httpsPort) {
+      console.log(`[backend] 手机拍照 HTTPS 端口: ${httpsPort}`)
+    }
   })
+
+  const httpsServer = startMobileHttpsServer(app)
 
   const shutdown = () => {
     stopExcelBridgeProcess()
     stopPrintAgentProcess()
     stopXiangyuProcesses()
+    httpsServer?.close()
     server.close(() => process.exit(0))
   }
   process.on('SIGINT', shutdown)

@@ -27,6 +27,9 @@ export const DEFAULT_PORTS = {
 
   printAgent: 4729,
 
+  /** 手机拍照专用 HTTPS（getUserMedia 需安全上下文） */
+  mobileHttps: 4730,
+
   qianfanDevtools: 9322,
 
 } as const
@@ -55,6 +58,15 @@ export function getPort(): number {
 
   return Number(process.env.PORT || DEFAULT_PORTS.main)
 
+}
+
+
+
+/** 手机拍照 HTTPS 端口；设为 0 可关闭 */
+export function getMobileHttpsPort(): number {
+  const v = process.env.MOBILE_HTTPS_PORT?.trim()
+  if (v === '0' || v === 'off' || v === 'false') return 0
+  return Number(v || DEFAULT_PORTS.mobileHttps)
 }
 
 

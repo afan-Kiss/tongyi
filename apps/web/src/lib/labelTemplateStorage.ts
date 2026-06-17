@@ -1,8 +1,9 @@
 import type { LabelTemplate } from '@/api/types'
 
 import { DEFAULT_LABEL_LINES } from '@/lib/labelFormat'
+import { loadLabelPrintMemory, saveLabelPrintMemory } from '@/lib/labelPrintMemory'
 
-/** 内置吊牌参数（不可在前端修改，与 print-agent/label_format.py 一致） */
+/** 内置吊牌参数（尺寸/字体等与 print-agent/label_format.py 一致） */
 export const BUILTIN_LABEL_TEMPLATE: LabelTemplate = {
   id: 'builtin',
   widthMm: 25,
@@ -20,11 +21,19 @@ export const BUILTIN_LABEL_TEMPLATE: LabelTemplate = {
 export const DEFAULT_LABEL_TEMPLATE = BUILTIN_LABEL_TEMPLATE
 
 export function loadLabelTemplate(): LabelTemplate {
-  return { ...BUILTIN_LABEL_TEMPLATE, lines: [...DEFAULT_LABEL_LINES] }
+  const mem = loadLabelPrintMemory()
+  const lines = DEFAULT_LABEL_LINES.map((line) => ({
+    ...line,
+    format: mem.lineFormats[line.id] ?? line.format,
+  }))
+  return { ...BUILTIN_LABEL_TEMPLATE, lines }
 }
 
-export function saveLabelTemplate(_template: LabelTemplate): void {
-  /* 内置模板，忽略保存 */
+export function saveLabelTemplate(template: LabelTemplate): void {
+  const lineFormats = Object.fromEntries(
+    template.lines.map((l) => [l.id, l.format]),
+  )
+  saveLabelPrintMemory({ lineFormats })
 }
 
 export function labelFieldSize(template: LabelTemplate, key: string, fallback: number): number {

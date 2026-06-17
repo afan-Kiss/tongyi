@@ -42,14 +42,14 @@ DATA_START_ROW = 2
 
 CERT_PREFIXES = (
     "DA", "DB", "DC", "DD", "DE", "DF", "DG", "DH", "DI", "DK", "DL", "DM", "DN", "DP", "DQ", "DR", "DW",
-    "ZQ", "F", "D",
+    "ZF", "ZQ", "F", "D",
 )
 
 
 def _default_digit_width(prefix: str) -> int:
     if prefix == "F":
         return 5
-    if prefix == "ZQ":
+    if prefix in ("ZQ", "ZF"):
         return 4
     return 3
 
@@ -124,22 +124,41 @@ def _cert_matches_search_query(cert_no: str, query: str) -> bool:
     return True
 
 
-def _with_com(fn: Callable[[], T]) -> T:
+def _cert_matches_contains_search_query(cert_no: str, query: str) -> bool:
+    q = _cell_str(query).upper()
+    cert = _cell_str(cert_no).upper()
+    if not q or q not in cert:
+        return False
+    if cert.startswith(q):
+        return _cert_matches_search_query(cert, q)
+    # 仅纯数字片段模糊匹配，避免 F000 命中 ZF00001
+    if not q.isdigit():
+        return False
+    return True
+
+
+_com_tls = threading.local()
+
+
+def _ensure_com() -> None:
     import pythoncom
 
-    pythoncom.CoInitialize()
-    try:
-        with _com_lock:
-            try:
+    if not getattr(_com_tls, "ready", False):
+        pythoncom.CoInitializeEx(pythoncom.COINIT_APARTMENTTHREADED)
+        _com_tls.ready = True
+
+
+def _with_com(fn: Callable[[], T]) -> T:
+    _ensure_com()
+    with _com_lock:
+        try:
+            return fn()
+        except Exception as e:
+            err = str(e)
+            if "-2147417842" in err or "已为另一线程整理" in err:
+                _reset_connector()
                 return fn()
-            except Exception as e:
-                err = str(e)
-                if "-2147417842" in err or "已为另一线程整理" in err:
-                    _reset_connector()
-                    return fn()
-                raise
-    finally:
-        pythoncom.CoUninitialize()
+            raise
 
 
 def _get_connector_unlocked():
@@ -163,24 +182,6 @@ def _get_ws_unlocked(sheet_name: Optional[str] = None):
     if sheet_name:
         return app_excel.Workbooks(app_excel.ActiveWorkbook.Name).Worksheets(sheet_name)
     return app_excel.ActiveWorkbook.ActiveSheet
-
-
-def _with_com(fn: Callable[[], T]) -> T:
-    import pythoncom
-
-    pythoncom.CoInitialize()
-    try:
-        with _com_lock:
-            try:
-                return fn()
-            except Exception as e:
-                err = str(e)
-                if "-2147417842" in err or "已为另一线程整理" in err:
-                    _reset_connector()
-                    return fn()
-                raise
-    finally:
-        pythoncom.CoUninitialize()
 
 
 def _get_ws(sheet_name: Optional[str] = None):
@@ -241,6 +242,63 @@ def _iter_row_tuples(values: Any) -> list[tuple[Any, ...]]:
     return [(v,) for v in values]
 
 
+def _row_tuple_to_index_entry(sheet_name: str, row_num: int, row: tuple[Any, ...]) -> Optional[dict[str, Any]]:
+    cert = _cell_str(row[3] if len(row) > 3 else None).upper()
+    if not cert:
+        return None
+    return {
+        "certNo": cert,
+        "sheet": sheet_name,
+        "row": row_num,
+        "arrivalDate": _cell_str(row[0] if len(row) > 0 else None),
+        "batch": _cell_str(row[1] if len(row) > 1 else None),
+        "qty": _parse_qty(row[2] if len(row) > 2 else None),
+        "category": _cell_str(row[4] if len(row) > 4 else None),
+        "ringSize": _cell_str(row[5] if len(row) > 5 else None),
+        "cost": _cell_str(row[6] if len(row) > 6 else None),
+        "remark": _cell_str(row[7] if len(row) > 7 else None),
+        "orderNo": _cell_str(row[8] if len(row) > 8 else None),
+        "returnDate": _cell_str(row[9] if len(row) > 9 else None),
+        "soldDate": _cell_str(row[10] if len(row) > 10 else None),
+        "actualPrice": _cell_str(row[11] if len(row) > 11 else None),
+        "salesPerson": _cell_str(row[12] if len(row) > 12 else None),
+        "salesChannel": _cell_str(row[13] if len(row) > 13 else None),
+    }
+
+
+def _build_cert_index_unlocked() -> dict[str, Any]:
+    app_excel = _get_connector_unlocked()
+    wb = app_excel.ActiveWorkbook
+    if wb is None:
+        return {"ok": False, "message": "请先打开 Excel 工作簿"}
+
+    entries: list[dict[str, Any]] = []
+    workbook_name = str(wb.Name)
+    for ws in wb.Worksheets:
+        sheet_name = str(ws.Name)
+        last_row = int(ws.Cells(ws.Rows.Count, COL_CERT_NO).End(-4162).Row)
+        if last_row < DATA_START_ROW:
+            continue
+        rng = ws.Range(
+            ws.Cells(DATA_START_ROW, COL_ARRIVAL_DATE),
+            ws.Cells(last_row, COL_SALES_CHANNEL),
+        )
+        rows = _iter_row_tuples(rng.Value)
+        for i, row in enumerate(rows):
+            item = _row_tuple_to_index_entry(sheet_name, DATA_START_ROW + i, row)
+            if item:
+                entries.append(item)
+
+    return {
+        "ok": True,
+        "message": f"已建立编号索引 {len(entries)} 条",
+        "count": len(entries),
+        "workbook": workbook_name,
+        "builtAt": datetime.datetime.now().isoformat(timespec="seconds"),
+        "entries": entries,
+    }
+
+
 def _build_cert_index() -> dict[str, Any]:
     """扫描活动工作簿全部工作表，建立编号索引（只读）。"""
     global _cert_index_entries, _cert_index_ready, _cert_index_loading
@@ -252,54 +310,15 @@ def _build_cert_index() -> dict[str, Any]:
     _cert_index_loading = True
     _cert_index_ready = False
     try:
-        app_excel = _get_connector()
-        wb = app_excel.ActiveWorkbook
-        if wb is None:
-            return {"ok": False, "message": "请先打开 Excel 工作簿"}
-
-        entries: list[dict[str, Any]] = []
-        workbook_name = str(wb.Name)
-        for ws in wb.Worksheets:
-            sheet_name = str(ws.Name)
-            last_row = int(ws.Cells(ws.Rows.Count, COL_CERT_NO).End(-4162).Row)
-            if last_row < DATA_START_ROW:
-                continue
-            rng = ws.Range(
-                ws.Cells(DATA_START_ROW, COL_BATCH),
-                ws.Cells(last_row, COL_CATEGORY),
-            )
-            rows = _iter_row_tuples(rng.Value)
-            for i, row in enumerate(rows):
-                batch = _cell_str(row[0] if len(row) > 0 else None)
-                qty_raw = row[1] if len(row) > 1 else None
-                cert = _cell_str(row[2] if len(row) > 2 else None).upper()
-                category = _cell_str(row[3] if len(row) > 3 else None)
-                if not cert:
-                    continue
-                entries.append(
-                    {
-                        "certNo": cert,
-                        "sheet": sheet_name,
-                        "row": DATA_START_ROW + i,
-                        "batch": batch,
-                        "category": category,
-                        "qty": _parse_qty(qty_raw),
-                    }
-                )
-
-        _cert_index_entries = entries
+        built = _with_com(_build_cert_index_unlocked)
+        if not built.get("ok"):
+            return built
+        _cert_index_entries = built["entries"]
         _cert_index_ready = True
-        _cert_index_built_at = datetime.datetime.now().isoformat(timespec="seconds")
-        _cert_index_workbook = workbook_name
-        logger.info("编号索引已建立：%s 条（工作簿 %s）", len(entries), workbook_name)
-        return {
-            "ok": True,
-            "message": f"已建立编号索引 {len(entries)} 条",
-            "count": len(entries),
-            "workbook": workbook_name,
-            "builtAt": _cert_index_built_at,
-            "entries": entries,
-        }
+        _cert_index_built_at = built["builtAt"]
+        _cert_index_workbook = built["workbook"]
+        logger.info("编号索引已建立：%s 条（工作簿 %s）", len(_cert_index_entries), _cert_index_workbook)
+        return built
     except Exception as e:
         logger.exception("cert index build failed")
         _reset_connector()
@@ -322,7 +341,7 @@ def _search_cert_index(query: str, limit: int = 20) -> list[dict[str, Any]]:
             prefix_hits.append(item)
             if len(prefix_hits) >= limit:
                 return prefix_hits
-        elif q in cert and len(prefix_hits) + len(contains_hits) < limit:
+        elif _cert_matches_contains_search_query(cert, q) and len(prefix_hits) + len(contains_hits) < limit:
             contains_hits.append(item)
         if len(prefix_hits) + len(contains_hits) >= limit:
             break
@@ -761,7 +780,7 @@ if __name__ == "__main__":
     try:
         from waitress import serve
 
-        serve(app, host="127.0.0.1", port=port, threads=4)
+        serve(app, host="127.0.0.1", port=port, threads=1)
     except ImportError:
         logger.warning("未安装 waitress，使用 Flask 开发服务器")
         app.run(host="127.0.0.1", port=port, debug=False, threaded=True)

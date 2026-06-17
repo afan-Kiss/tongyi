@@ -10,9 +10,15 @@ import { ExcelSyncPanel } from '@/components/ExcelSyncPanel'
 
 import { InboundPhotoCapture, type InboundPhotoCaptureHandle } from '@/components/InboundPhotoCapture'
 
+import { LabelPrintEditor } from '@/components/LabelPrintEditor'
+
 import { LabelPrintPanel } from '@/components/LabelPrintPanel'
 
 import { LabelPrintPreview } from '@/components/LabelPrintPreview'
+
+import { CertExistsDialog } from '@/components/CertExistsDialog'
+
+import { AppMessageDialog } from '@/components/AppMessageDialog'
 
 import { useRegisterInbound, useReturnInbound } from '@/hooks/useScanWorkbench'
 
@@ -40,7 +46,8 @@ import {
 
 } from '@/lib/inboundFormStorage'
 
-
+import { loadLabelPrintMemory, saveLabelPrintMemory, getBarcodeDigits, type LabelPrintMemory } from '@/lib/labelPrintMemory'
+import { applyFormSyncToLabelMemory } from '@/lib/labelPrintSync'
 
 const BASIC_FIELDS = [
 
@@ -107,7 +114,7 @@ export const InboundFormPage: React.FC = () => {
   })
 
   const [detail, setDetail] = useState<Partial<BraceletDetail>>(newMem.detail)
-  const [barcodeCaption, setBarcodeCaption] = useState(newMem.barcodeCaption || '{certNo}')
+  const [labelMemory, setLabelMemory] = useState<LabelPrintMemory>(() => loadLabelPrintMemory())
 
   const [returnRemark, setReturnRemark] = useState(returnMem.remarkText)
 
@@ -122,6 +129,14 @@ export const InboundFormPage: React.FC = () => {
   const [status, setStatus] = useState('')
 
   const [lookupMsg, setLookupMsg] = useState('')
+
+  const [certExists, setCertExists] = useState<{ certNo: string; bracelet?: Bracelet | null } | null>(null)
+
+  const [messageDialog, setMessageDialog] = useState<{
+    title: string
+    message: string
+    variant?: 'error' | 'success' | 'info'
+  } | null>(null)
 
   const [returnTarget, setReturnTarget] = useState<Bracelet | null>(null)
 
@@ -142,7 +157,7 @@ export const InboundFormPage: React.FC = () => {
       setExcelHint('请先填写编号')
       return
     }
-    setExcelHint('正在从 Excel 读取…')
+    setExcelHint('正在从索引读取…')
     try {
       const r = await api.excelRowPreview(code)
       const row = r.data
@@ -156,7 +171,7 @@ export const InboundFormPage: React.FC = () => {
         cost: row.cost || f.cost,
         remark: row.remark || f.remark,
       }))
-      setExcelHint(row.excelRow ? `已从 Excel 第 ${row.excelRow} 行预填（不会修改 Excel）` : '已从 Excel 预填')
+      setExcelHint(row.excelRow ? `已从索引预填（Excel 第 ${row.excelRow} 行，未改 Excel）` : '已从索引预填')
     } catch (e) {
       setExcelHint(e instanceof Error ? e.message : String(e))
     }
@@ -218,11 +233,15 @@ export const InboundFormPage: React.FC = () => {
 
       detail,
 
-      barcodeCaption,
-
     })
 
-  }, [form.arrivalDate, form.batch, form.category, form.ringSize, form.cost, form.remark, detail, barcodeCaption])
+  }, [form.arrivalDate, form.batch, form.category, form.ringSize, form.cost, form.remark, detail])
+
+
+
+  useEffect(() => {
+    saveLabelPrintMemory(labelMemory)
+  }, [labelMemory])
 
 
 
@@ -292,19 +311,36 @@ export const InboundFormPage: React.FC = () => {
 
   }, [kind, returnCertNo])
 
+  const isCertExistsError = (msg: string) => msg.includes('已存在') || msg.includes('已在系统中')
 
+  const showCertExists = useCallback((certNo: string, bracelet?: Bracelet | null) => {
+    const code = certNo.trim().toUpperCase()
+    if (!code) return
+    setCertExists({ certNo: code, bracelet })
+  }, [])
 
   const onSubmitRegister = async () => {
     if (!form.certNo.trim()) {
-      setStatus('请填写手写编号')
+      setMessageDialog({ title: '请填写编号', message: '标签入库需要先填写手写编号。', variant: 'info' })
       return
     }
     setSubmitting(true)
     setStatus('正在登记到系统…')
     try {
+      try {
+        const existing = await api.getByCertDbOnly(form.certNo.trim())
+        showCertExists(form.certNo, existing.data)
+        setStatus('')
+        return
+      } catch {
+        // 数据库无记录，继续登记
+      }
       const hasDetail = !!(detail.description && String(detail.description).trim())
+      const memForSubmit = applyFormSyncToLabelMemory(labelMemory, form)
+      const barcodeValue = getBarcodeDigits(memForSubmit)
       const data = await registerInbound.submit({
         ...form,
+        barcodeValue: barcodeValue || undefined,
         detail: hasDetail ? { description: detail.description } : undefined,
       })
       setCreated(data.bracelet)
@@ -319,13 +355,30 @@ export const InboundFormPage: React.FC = () => {
       const msg = data.excelSync?.message || '已登记到系统（未修改 Excel）'
       setStatus(photoWarn ? `${msg} · ${photoWarn}` : `${msg}，正在打印吊牌…`)
       try {
-        const printMsg = await printBraceletTag(data.bracelet, { barcodeCaption })
-        setStatus(photoWarn ? `${msg} · ${photoWarn} · ${printMsg}` : `${msg} · ${printMsg}`)
+        const printMsg = await printBraceletTag(data.bracelet, { labelMemory })
+        const done = photoWarn ? `${msg} · ${photoWarn} · ${printMsg}` : `${msg} · ${printMsg}`
+        setStatus(done)
+        setMessageDialog({ title: '打印已发送', message: done, variant: 'success' })
       } catch (e) {
-        setStatus(photoWarn ? `${msg} · ${photoWarn} · 打印失败：${e instanceof Error ? e.message : String(e)}` : `${msg}，但打印失败：${e instanceof Error ? e.message : String(e)}`)
+        const err = e instanceof Error ? e.message : String(e)
+        const fail = photoWarn ? `${msg} · ${photoWarn} · 打印失败：${err}` : `${msg}，但打印失败：${err}`
+        setStatus(fail)
+        setMessageDialog({ title: '打印失败', message: fail, variant: 'error' })
       }
     } catch (e) {
-      setStatus(e instanceof Error ? e.message : String(e))
+      const msg = e instanceof Error ? e.message : String(e)
+      if (isCertExistsError(msg)) {
+        setStatus('')
+        try {
+          const r = await api.getByCertDbOnly(form.certNo.trim())
+          showCertExists(form.certNo, r.data)
+        } catch {
+          showCertExists(form.certNo)
+        }
+      } else {
+        setStatus(msg)
+        setMessageDialog({ title: '登记失败', message: msg, variant: 'error' })
+      }
     } finally {
       setSubmitting(false)
     }
@@ -441,7 +494,7 @@ export const InboundFormPage: React.FC = () => {
               onClick={() => loadFromExcel()}
               className="text-[11px] text-slate-500 underline"
             >
-              从 Excel 读取预填（只读，不改 Excel）
+              从索引预填（只读，不改 Excel）
             </button>
             {excelHint && <p className="text-[11px] text-slate-400">{excelHint}</p>}
           </div>
@@ -506,27 +559,17 @@ export const InboundFormPage: React.FC = () => {
           </div>
 
           <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4 shadow-sm">
-            <label className="block text-sm">
-              <span className="text-slate-500">条形码下方文字</span>
-              <input
-                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 font-mono text-sm tracking-wide"
-                value={barcodeCaption}
-                onChange={(e) => setBarcodeCaption(e.target.value)}
-                placeholder="{certNo}"
-              />
-            </label>
-            <p className="mt-1 text-[11px] text-slate-400">支持 {'{certNo}'} 占位符，内容会自动记住</p>
+            <h3 className="mb-2 text-sm font-semibold text-slate-800">吊牌打印</h3>
+            <LabelPrintEditor
+              memory={labelMemory}
+              onChange={setLabelMemory}
+              formSync={{ certNo: form.certNo, ringSize: form.ringSize, cost: form.cost }}
+            />
           </div>
 
           <LabelPrintPreview
-            bracelet={{
-              certNo: form.certNo,
-              category: form.category,
-              ringSize: form.ringSize,
-              cost: form.cost,
-              remark: form.remark,
-            }}
-            barcodeCaptionText={barcodeCaption}
+            labelMemory={labelMemory}
+            formSync={{ certNo: form.certNo, ringSize: form.ringSize, cost: form.cost }}
           />
 
           <button
@@ -658,7 +701,7 @@ export const InboundFormPage: React.FC = () => {
 
       {created && kind === 'register' && (
         <>
-          <LabelPrintPanel bracelet={created} label="重新打印吊牌" />
+          <LabelPrintPanel bracelet={created} label="重新打印吊牌" labelMemory={labelMemory} />
           <button
             type="button"
             onClick={() => navigate('/inventory/inbound?type=register')}
@@ -668,6 +711,21 @@ export const InboundFormPage: React.FC = () => {
           </button>
         </>
       )}
+
+      <CertExistsDialog
+        open={certExists !== null}
+        certNo={certExists?.certNo || ''}
+        bracelet={certExists?.bracelet}
+        onClose={() => setCertExists(null)}
+      />
+
+      <AppMessageDialog
+        open={messageDialog !== null}
+        title={messageDialog?.title || ''}
+        message={messageDialog?.message || ''}
+        variant={messageDialog?.variant}
+        onClose={() => setMessageDialog(null)}
+      />
     </div>
   )
 }

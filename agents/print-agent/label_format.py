@@ -13,34 +13,35 @@ DEFAULT_LABEL_LINES: list[dict[str, Any]] = [
         "name": "退换提示",
         "format": "标签撕毁 不予退换",
         "show": True,
-        "size": 15,
-        "fontFamily": "msyh",
+        "size": 17,
+        "fontFamily": "simhei",
         "bold": True,
         "yPx": 13,
-        "offsetXPx": 3,
+        "offsetXPx": 2,
     },
     {
         "id": "barcode",
         "kind": "barcode",
         "name": "条形码",
-        "format": "{certNo}",
+        "format": "",
         "show": True,
-        "size": 14,
-        "fontFamily": "msyh",
+        "size": 18,
+        "fontFamily": "simhei",
         "bold": True,
-        "yPx": 28,
-        "xPx": 11,
+        "yPx": 31,
+        "xPx": 4,
         "barcodeHeight": 62,
+        "barcodeStretchX": 1.06,
         "captionGapPx": 1,
     },
     {
         "id": "title",
         "kind": "text",
         "name": "标题行",
-        "format": "{category}",
+        "format": "天然和田玉手镯",
         "show": True,
-        "size": 16,
-        "fontFamily": "msyh",
+        "size": 18,
+        "fontFamily": "simhei",
         "bold": True,
         "yPx": 136,
         "offsetXPx": 2,
@@ -50,34 +51,40 @@ DEFAULT_LABEL_LINES: list[dict[str, Any]] = [
         "id": "cert",
         "kind": "text",
         "name": "编号",
-        "format": "编号:{certNo}",
+        "format": "编号:",
         "show": True,
-        "size": 16,
-        "fontFamily": "msyh",
-        "bold": False,
+        "size": 18,
+        "fontFamily": "simhei",
+        "bold": True,
         "yPx": 160,
+        "textAlign": "left",
+        "offsetXPx": 2,
     },
     {
         "id": "ring",
         "kind": "text",
         "name": "圈口",
-        "format": "圈口:{ringSize}",
+        "format": "圈口:",
         "show": True,
-        "size": 15,
-        "fontFamily": "msyh",
-        "bold": False,
+        "size": 17,
+        "fontFamily": "simhei",
+        "bold": True,
         "yPx": 185,
+        "textAlign": "left",
+        "offsetXPx": 2,
     },
     {
         "id": "price",
         "kind": "text",
         "name": "售价",
-        "format": "售价{price}元",
+        "format": "售价:元",
         "show": True,
-        "size": 15,
-        "fontFamily": "msyh",
-        "bold": False,
+        "size": 17,
+        "fontFamily": "simhei",
+        "bold": True,
         "yPx": 208,
+        "textAlign": "left",
+        "offsetXPx": 2,
     },
 ]
 
@@ -100,8 +107,31 @@ def build_label_data(data: dict[str, Any]) -> dict[str, str]:
     }
 
 
+_BRACKET_LABEL_KEYS = {
+    "编号": "certNo",
+    "标题/品类": "category",
+    "圈口": "ringSize",
+    "克重": "weightGram",
+    "售价": "price",
+    "批次": "batch",
+    "成本": "cost",
+    "备注": "remark",
+}
+
+
+def _expand_bracket_label_placeholders(text: str, label_data: dict[str, str]) -> str:
+    def _repl(m: re.Match[str]) -> str:
+        inner = m.group(1)
+        key = _BRACKET_LABEL_KEYS.get(inner)
+        if not key:
+            return m.group(0)
+        return label_data.get(key, "").strip()
+
+    return _BLOCK_RE.sub(_repl, text)
+
+
 def render_label_format(fmt: str, label_data: dict[str, str]) -> str | None:
-    text = (fmt or "").strip()
+    text = _expand_bracket_label_placeholders((fmt or "").strip(), label_data)
     if not text:
         return None
 
@@ -134,43 +164,39 @@ def render_label_format(fmt: str, label_data: dict[str, str]) -> str | None:
 
 def resolve_lines(
     lines: list[dict[str, Any]] | None,
-    fields: list[dict[str, Any]] | None = None,
+    fields: list[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
     if lines:
         return lines
     if fields:
         return _migrate_fields_to_lines(fields)
-    return DEFAULT_LABEL_LINES
+    return [dict(line) for line in DEFAULT_LABEL_LINES]
 
 
 def _migrate_fields_to_lines(fields: list[dict[str, Any]]) -> list[dict[str, Any]]:
     def size(key: str, fallback: int) -> int:
-        for f in fields:
-            if f.get("key") == key:
-                return int(f.get("size") or fallback)
-        return fallback
+        f = next((x for x in fields if x.get("key") == key), None)
+        return int(f.get("size") or fallback) if f else fallback
 
     def show(key: str, fallback: bool) -> bool:
-        for f in fields:
-            if f.get("key") == key:
-                return bool(f.get("show", fallback))
-        return fallback
+        f = next((x for x in fields if x.get("key") == key), None)
+        return bool(f.get("show", fallback)) if f else fallback
 
     lines = [dict(line) for line in DEFAULT_LABEL_LINES]
     for line in lines:
         if line["id"] == "barcode":
             line["show"] = show("barcode", True)
-            line["size"] = size("barcode", 12)
+            line["size"] = size("barcode", 18)
         elif line["id"] == "title":
             line["show"] = show("category", True)
-            line["size"] = size("category", 16)
+            line["size"] = size("category", 18)
         elif line["id"] == "cert":
             line["show"] = show("certNo", True)
-            line["size"] = size("certNo", 16)
+            line["size"] = size("certNo", 18)
         elif line["id"] == "ring":
             line["show"] = show("ringSize", True)
-            line["size"] = size("ringSize", 15)
+            line["size"] = size("ringSize", 17)
         elif line["id"] == "price":
             line["show"] = show("price", True)
-            line["size"] = size("price", 15)
+            line["size"] = size("price", 17)
     return lines

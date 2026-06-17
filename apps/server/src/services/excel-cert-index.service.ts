@@ -1,9 +1,10 @@
 import {
   type CertIndexEntry,
+  type ExcelRowData,
   fetchCertIndexFromBridge,
 } from '../adapters/excel/excel-live.adapter'
 import { isExcelBridgeEnabled } from '../config/env'
-import { certMatchesSearchQuery } from '../domain/cert-no.rules'
+import { certMatchesContainsSearchQuery, certMatchesSearchQuery } from '../domain/cert-no.rules'
 
 export type { CertIndexEntry }
 
@@ -50,7 +51,10 @@ export function searchCertIndex(query: string, limit = 20): CertIndexEntry[] {
     if (certMatchesSearchQuery(item.certNo, q)) {
       prefixHits.push(item)
       if (prefixHits.length >= cap) return prefixHits
-    } else if (item.certNo.includes(q) && prefixHits.length + containsHits.length < cap) {
+    } else if (
+      certMatchesContainsSearchQuery(item.certNo, q) &&
+      prefixHits.length + containsHits.length < cap
+    ) {
       containsHits.push(item)
     }
     if (prefixHits.length + containsHits.length >= cap) break
@@ -63,6 +67,28 @@ export function findCertIndexEntry(certNo: string): CertIndexEntry | undefined {
   const code = certNo.trim().toUpperCase()
   if (!code || !ready) return undefined
   return entries.find((e) => e.certNo === code)
+}
+
+/** 将内存索引条目转为表单预填用的行数据（无需再调 Excel COM） */
+export function certIndexEntryToRowData(entry: CertIndexEntry): ExcelRowData {
+  return {
+    certNo: entry.certNo,
+    arrivalDate: entry.arrivalDate || '',
+    batch: entry.batch || '',
+    qty: entry.qty ?? 1,
+    category: entry.category || '',
+    ringSize: entry.ringSize || '',
+    cost: entry.cost || '',
+    remark: entry.remark || '',
+    orderNo: entry.orderNo || '',
+    returnDate: entry.returnDate || '',
+    soldDate: entry.soldDate || '',
+    actualPrice: entry.actualPrice || '',
+    salesPerson: entry.salesPerson || '',
+    salesChannel: entry.salesChannel || '',
+    excelRow: entry.row,
+    excelSheet: entry.sheet,
+  }
 }
 
 export async function refreshCertIndex(force = false): Promise<CertIndexStatus> {

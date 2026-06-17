@@ -4,11 +4,13 @@ import { checkExcelBridgeHealth } from '../adapters/excel/excel-live.adapter'
 import {
   getPrintAgentUrl,
   getPort,
+  getMobileHttpsPort,
   getXiangyuPort,
   getXiangyuWebUrl,
   isXiangyuEnabled,
   isExcelBridgeEnabled,
 } from '../config/env'
+import { isMobileHttpsEnabled } from '../lib/mobile-https'
 import { XIANGYU_PROXY_PREFIX } from '../middleware/xiangyuProxy'
 import {
   startExcelBridgeProcess,
@@ -140,6 +142,7 @@ export async function getSystemStatus() {
   return {
     lanIps: getLanIps(),
     port: getPort(),
+    mobileHttpsPort: isMobileHttpsEnabled() ? getMobileHttpsPort() : 0,
     xiangyuPort: getXiangyuPort(),
     xiangyuWebUrl: getXiangyuWebUrl(),
     xiangyuProxyPath: XIANGYU_PROXY_PREFIX,

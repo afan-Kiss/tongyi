@@ -27,6 +27,7 @@ v1Router.post('/print/bracelet-tag', async (req, res) => {
   const { getPrintAgentUrl } = await import('../../config/env')
   const { queryByCertNo } = await import('../../services/inventory-query.service')
   const { getSettings } = await import('../../services/settings.service')
+  const { braceletRepo } = await import('../../repositories/bracelet.repository')
   try {
     let bracelet = req.body?.bracelet
     if (!bracelet?.certNo && req.body?.certNo) {
@@ -47,8 +48,27 @@ v1Router.post('/print/bracelet-tag', async (req, res) => {
       }),
       signal: AbortSignal.timeout(20000),
     })
-    const data = await agentRes.json()
-    res.status(agentRes.ok ? 200 : 502).json(data)
+    const data = (await agentRes.json().catch(() => ({ ok: false, message: '打印 Agent 返回无效响应' }))) as {
+      ok?: boolean
+      message?: string
+    }
+    if (agentRes.ok) {
+      const lines = req.body?.template?.lines as { kind?: string; format?: string }[] | undefined
+      const barcodeLine = lines?.find((l) => l.kind === 'barcode')
+      const barcodeValue =
+        String(barcodeLine?.format || '').trim() ||
+        String((req.body?.bracelet as { barcodeValue?: string } | undefined)?.barcodeValue || '').trim()
+      if (barcodeValue) {
+        const row = await braceletRepo.findByCert(String(bracelet.certNo))
+        if (row) {
+          await braceletRepo.update(row.id, { barcodeValue })
+        }
+      }
+    }
+    if (!agentRes.ok || data.ok === false) {
+      return sendErr(res, String(data?.message || '打印失败'), 502)
+    }
+    res.status(200).json(data)
   } catch (e) {
     sendErr(res, `打印 Agent 不可用: ${e instanceof Error ? e.message : String(e)}`, 502)
   }

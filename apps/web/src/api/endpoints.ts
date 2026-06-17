@@ -22,8 +22,10 @@ export const inventoryApi = {
     Object.entries(params).forEach(([k, v]) => q.set(k, String(v)))
     return request<{ data: ListResult }>(`/inventory?${q}`)
   },
-  getByCert: (certNo: string) =>
-    request<{ data: Bracelet }>(`/inventory/by-cert/${encodeURIComponent(certNo)}`),
+  getByCert: (certNo: string, opts?: { dbOnly?: boolean }) => {
+    const q = opts?.dbOnly ? '?dbOnly=1' : ''
+    return request<{ data: Bracelet }>(`/inventory/by-cert/${encodeURIComponent(certNo)}${q}`)
+  },
   updateByCert: (certNo: string, body: Record<string, unknown>) =>
     request<{ data: { bracelet: Bracelet; excelSync: ExcelSyncResult; partialSuccess?: boolean } }>(
       `/inventory/by-cert/${encodeURIComponent(certNo)}`,

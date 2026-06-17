@@ -1,10 +1,11 @@
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import QRCode from 'qrcode'
-import { Camera, ImagePlus, Smartphone } from 'lucide-react'
+import { Camera, ImagePlus, Smartphone, X } from 'lucide-react'
 import { api } from '@/lib/api'
-import { buildMobileCameraUrl } from '@/lib/photoRelayUrl'
+import { buildMobileCameraUrl, isSecureLanMobileCameraUrl } from '@/lib/photoRelayUrl'
 import { clearPhotoRelayStationId, loadPhotoRelayStationId, savePhotoRelayStationId } from '@/lib/photoRelayStation'
 import {
+  attachStreamToVideo,
   canUseLiveCamera,
   captureVideoFrame,
   dataUrlToFile,
@@ -76,29 +77,33 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
       return false
     }
     stopStream()
+    const video = videoRef.current
+    if (!video) return false
+    setPhotoCameraUi(true)
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: 'environment' } },
         audio: false,
       })
       streamRef.current = stream
-      const video = videoRef.current
-      if (!video) return false
-      video.srcObject = stream
-      await new Promise<void>((resolve) => {
-        if (video.readyState >= 2) {
-          resolve()
-          return
-        }
-        video.onloadeddata = () => resolve()
-      })
-      setPhotoCameraUi(true)
+      await attachStreamToVideo(video, stream, 8000)
       return true
     } catch {
+      stopStream()
       setPhotoCameraUi(false)
       return false
     }
   }, [setPhotoCameraUi, stopStream])
+
+  const removePendingPhoto = useCallback((index: number) => {
+    pendingRef.current = pendingRef.current.filter((_, i) => i !== index)
+    setThumbs((prev) => prev.filter((_, i) => i !== index))
+    setStatus(
+      pendingRef.current.length
+        ? `已拍摄 ${pendingRef.current.length} 张（登记后自动上传）`
+        : '已清空待上传照片',
+    )
+  }, [])
 
   const addPendingPhoto = useCallback(
     async (dataUrl: string, name: string, flashOn = true) => {
@@ -417,7 +422,14 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
               </>
             ) : (
               <>
-                <p className="text-center text-[10px] font-medium text-slate-600">手机扫码（一次）</p>
+                <p className="text-center text-[10px] font-medium text-slate-600">手机扫码（HTTPS · 一次）</p>
+                {isSecureLanMobileCameraUrl(mobileUrl) && (
+                  <p className="mt-1 text-center text-[9px] leading-relaxed text-emerald-600">
+                    内网 HTTPS · 同 WiFi 最快
+                    <br />
+                    首次打开点「高级」→「继续访问」
+                  </p>
+                )}
                 {qrDataUrl ? (
                   <img src={qrDataUrl} alt="手机拍照二维码" className="mt-2 rounded-lg border border-slate-100" />
                 ) : (
@@ -463,8 +475,17 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
         {thumbs.length > 0 && (
           <div className="grid grid-cols-4 gap-2">
             {thumbs.map((src, idx) => (
-              <div key={`${idx}-${src.slice(0, 24)}`} className="aspect-square overflow-hidden rounded-xl border border-rose-100">
+              <div key={`${idx}-${src.slice(0, 24)}`} className="relative aspect-square overflow-hidden rounded-xl border border-rose-100">
                 <img src={src} alt={`photo-${idx}`} className="h-full w-full object-cover" />
+                <button
+                  type="button"
+                  disabled={disabled || uploading}
+                  onClick={() => removePendingPhoto(idx)}
+                  className="absolute right-1 top-1 rounded-full bg-red-500/90 p-1 text-white disabled:opacity-50"
+                  aria-label="删除照片"
+                >
+                  <X size={12} />
+                </button>
               </div>
             ))}
           </div>
@@ -556,8 +577,17 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
       {thumbs.length > 0 && (
         <div className="grid grid-cols-4 gap-2">
           {thumbs.map((src, idx) => (
-            <div key={`${idx}-${src.slice(0, 24)}`} className="aspect-square overflow-hidden rounded-xl border border-rose-100">
+            <div key={`${idx}-${src.slice(0, 24)}`} className="relative aspect-square overflow-hidden rounded-xl border border-rose-100">
               <img src={src} alt={`photo-${idx}`} className="h-full w-full object-cover" />
+              <button
+                type="button"
+                disabled={disabled || uploading}
+                onClick={() => removePendingPhoto(idx)}
+                className="absolute right-1 top-1 rounded-full bg-red-500/90 p-1 text-white disabled:opacity-50"
+                aria-label="删除照片"
+              >
+                <X size={12} />
+              </button>
             </div>
           ))}
         </div>

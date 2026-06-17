@@ -1,6 +1,8 @@
 export interface Bracelet {
   id: string
   certNo: string
+  /** 吊牌条形码内容（扫码识别） */
+  barcodeValue?: string | null
   arrivalDate?: string | null
   batch?: string | null
   qty: number
@@ -93,6 +95,8 @@ export interface NewBraceletBody {
   cost?: string
   remark?: string
   detail?: Partial<BraceletDetail>
+  /** 吊牌条形码内容，登记时写入供扫码查询 */
+  barcodeValue?: string
 }
 
 /** Excel 行只读预览（标签入库预填） */
@@ -128,6 +132,8 @@ export interface AppSettings {
 export interface SystemStatus {
   lanIps: string[]
   port: number
+  /** 手机拍照 HTTPS 端口，0 表示未启用 */
+  mobileHttpsPort?: number
   xiangyuPort: number
   xiangyuWebUrl: string
   xiangyuProxyPath: string
@@ -144,7 +150,7 @@ export interface LabelLine {
   id: string
   kind: 'barcode' | 'text'
   name: string
-  /** 支持占位符 {certNo}；方括号段 [编号:{certNo}] 在占位符为空时整段省略 */
+  /** 支持 [编号] 等占位符；方括号段 [编号:xxx] 在占位符为空时整段省略 */
   format: string
   show: boolean
   size: number
@@ -164,6 +170,8 @@ export interface LabelLine {
   barcodeStretchX?: number
   /** 条码下方编号与条码间距（px） */
   captionGapPx?: number
+  /** 文字对齐，默认居中 */
+  textAlign?: 'left' | 'center'
 }
 
 export interface LabelTemplate {
@@ -206,6 +214,16 @@ export interface CertIndexEntry {
   batch?: string
   category?: string
   qty?: number
+  arrivalDate?: string
+  ringSize?: string
+  cost?: string
+  remark?: string
+  orderNo?: string
+  returnDate?: string
+  soldDate?: string
+  actualPrice?: string
+  salesPerson?: string
+  salesChannel?: string
 }
 
 export interface CertIndexStatus {

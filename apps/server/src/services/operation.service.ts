@@ -22,11 +22,12 @@ import {
   fetchExcelRowData,
   precheckExcelRow,
   revertExcelRow,
+  type ExcelRowData,
 } from '../adapters/excel/excel-live.adapter'
 import { braceletRepo, operationLogRepo } from '../repositories/bracelet.repository'
 import { detailRepo } from '../repositories/detail.repository'
 import { prisma } from '../lib/prisma'
-import { findCertIndexEntry } from './excel-cert-index.service'
+import { certIndexEntryToRowData, findCertIndexEntry } from './excel-cert-index.service'
 import { ensureDetailRecord } from './detail.service'
 import type { ExcelSyncResult, InboundDto, NewBraceletDto, OperationResult, OutboundDto } from '../types/api.types'
 
@@ -176,6 +177,7 @@ export async function executeNewInbound(input: NewBraceletDto): Promise<Ok<Opera
 
   const bracelet = await braceletRepo.create({
     certNo,
+    barcodeValue: input.barcodeValue?.trim() || null,
     arrivalDate: input.arrivalDate || todayStr(),
     batch: input.batch || '',
     qty: 1,
@@ -211,28 +213,14 @@ export async function executeNewInbound(input: NewBraceletDto): Promise<Ok<Opera
   return { ok: true, ...wrapOperationResult(bracelet, log.id, excelSync) }
 }
 
-/** 从 Excel 只读预览一行（用于标签入库表单预填，不写 Excel） */
+/** 从内存编号索引预填一行（启动预热后无需再读 Excel COM） */
 export async function getExcelRowPreview(certNo: string) {
   const code = normalizeCertNo(certNo)
   if (!code) return { ok: false as const, message: '编号无效' }
 
   const indexed = findCertIndexEntry(code)
   if (indexed) {
-    const excel = await fetchExcelRowData(code, indexed.row, indexed.sheet)
-    if (excel.ok && excel.data) {
-      return { ok: true as const, data: excel.data }
-    }
-    return {
-      ok: true as const,
-      data: {
-        certNo: code,
-        batch: indexed.batch || '',
-        category: indexed.category || '',
-        qty: indexed.qty ?? 1,
-        excelRow: indexed.row,
-        excelSheet: indexed.sheet,
-      },
-    }
+    return { ok: true as const, data: certIndexEntryToRowData(indexed) }
   }
 
   const excel = await fetchExcelRowData(code)
@@ -242,17 +230,24 @@ export async function getExcelRowPreview(certNo: string) {
   return { ok: true as const, data: excel.data }
 }
 
+async function resolveExcelRowForCert(certNo: string): Promise<ExcelRowData | undefined> {
+  const indexed = findCertIndexEntry(certNo)
+  if (indexed) return certIndexEntryToRowData(indexed)
+  const excel = await fetchExcelRowData(certNo)
+  return excel.ok ? excel.data : undefined
+}
+
 /** 已有标签入库：仅写入数据库并关联 Excel 行号，不修改 Excel */
 export async function executeRegisterBracelet(input: NewBraceletDto): Promise<Ok<OperationResult> | Fail> {
   const certNo = normalizeCertNo(input.certNo)
   const exists = await braceletRepo.findByCert(certNo)
   if (exists) return { ok: false, message: `编号 ${certNo} 已在系统中` }
 
-  const excel = await fetchExcelRowData(certNo)
-  const row = excel.ok ? excel.data : undefined
+  const row = await resolveExcelRowForCert(certNo)
 
   const bracelet = await braceletRepo.create({
     certNo,
+    barcodeValue: input.barcodeValue?.trim() || null,
     arrivalDate: input.arrivalDate || row?.arrivalDate || todayStr(),
     batch: input.batch ?? row?.batch ?? '',
     qty: row?.qty === 0 ? 0 : 1,
