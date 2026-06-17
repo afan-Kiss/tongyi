@@ -3,13 +3,24 @@ import { DEFAULT_LABEL_LINES } from '@/lib/labelFormat'
 const STORAGE_KEY = 'jade-label-print-v1'
 const LEGACY_BARCODE_KEY = 'jade-inbound-new-v1'
 
+const DEFAULT_BARCODE_PREFIX = '02'
+
 export interface LabelPrintMemory {
   /** 各行 format 文字（含条形码下方数字） */
   lineFormats: Record<string, string>
+  /** 条形码前缀，默认 02，参与规则：前缀 + (成本×3+10) + 圈口整数 */
+  barcodePrefix?: string
   /** 用户手改条形码后，批次/成本/圈口变化不再自动改条形码 */
   barcodeManual?: boolean
   /** 用户手改售价后，成本变化不再自动改售价 */
   priceManual?: boolean
+}
+
+/** 条形码前缀：仅数字，至少 1 位，默认 02 */
+export function normalizeBarcodePrefix(raw: string | null | undefined): string {
+  const digits = (raw ?? DEFAULT_BARCODE_PREFIX).trim().replace(/\D/g, '')
+  if (!digits) return DEFAULT_BARCODE_PREFIX
+  return digits.slice(0, 4)
 }
 
 function defaultLineFormats(): Record<string, string> {
@@ -52,7 +63,12 @@ function migrateLegacyBarcode(formats: Record<string, string>): Record<string, s
 }
 
 export function loadLabelPrintMemory(): LabelPrintMemory {
-  const parsed = readJson<{ lineFormats?: Record<string, string>; barcodeManual?: boolean; priceManual?: boolean }>(STORAGE_KEY, {})
+  const parsed = readJson<{
+    lineFormats?: Record<string, string>
+    barcodePrefix?: string
+    barcodeManual?: boolean
+    priceManual?: boolean
+  }>(STORAGE_KEY, {})
   let lineFormats = { ...defaultLineFormats(), ...(parsed.lineFormats ?? {}) }
   if (lineFormats.barcode === '[编号]' || lineFormats.barcode === '{certNo}') {
     lineFormats.barcode = ''
@@ -73,14 +89,25 @@ export function loadLabelPrintMemory(): LabelPrintMemory {
     barcodeManual = false
     migrated = true
   }
-  const result = { lineFormats, barcodeManual, priceManual: parsed.priceManual ?? false }
+  const result: LabelPrintMemory = {
+    lineFormats,
+    barcodePrefix: normalizeBarcodePrefix(parsed.barcodePrefix),
+    barcodeManual,
+    priceManual: parsed.priceManual ?? false,
+  }
   if (migrated) saveLabelPrintMemory(result)
   return result
 }
 
 /** 新建一条标签入库时的默认吊牌（不读上次编号/条形码） */
 export function createDefaultLabelPrintMemory(): LabelPrintMemory {
-  return { lineFormats: defaultLineFormats(), barcodeManual: false, priceManual: false }
+  const loaded = loadLabelPrintMemory()
+  return {
+    lineFormats: defaultLineFormats(),
+    barcodePrefix: loaded.barcodePrefix ?? DEFAULT_BARCODE_PREFIX,
+    barcodeManual: false,
+    priceManual: false,
+  }
 }
 
 export function saveLabelPrintMemory(mem: LabelPrintMemory): void {

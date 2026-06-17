@@ -201,7 +201,11 @@ export interface ExcelSyncResult {
   message: string
   row?: number
   sheet?: string
+  /** @deprecated 与 afterSnapshotBase64 相同，保留兼容 */
   snapshotBase64?: string
+  beforeSnapshotBase64?: string
+  afterSnapshotBase64?: string
+  syncedAt?: string
   verify?: Record<string, string>
 }
 

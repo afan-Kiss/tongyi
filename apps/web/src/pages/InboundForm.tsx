@@ -14,8 +14,6 @@ import { LabelPrintEditor } from '@/components/LabelPrintEditor'
 
 import { LabelPrintPanel } from '@/components/LabelPrintPanel'
 
-import { LabelPrintPreview } from '@/components/LabelPrintPreview'
-
 import { CertExistsDialog } from '@/components/CertExistsDialog'
 
 import { AppMessageDialog } from '@/components/AppMessageDialog'
@@ -669,8 +667,6 @@ export const InboundFormPage: React.FC = () => {
               }}
             />
           </div>
-
-          <LabelPrintPreview labelMemory={labelMemory} />
 
           {registerTarget && (
             <StockOpPanel

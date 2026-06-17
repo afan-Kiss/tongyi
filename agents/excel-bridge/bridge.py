@@ -393,24 +393,39 @@ def _sync_response(
     row: Optional[int] = None,
     sheet: str = "",
     snapshot_b64: Optional[str] = None,
+    before_snapshot_b64: Optional[str] = None,
+    after_snapshot_b64: Optional[str] = None,
+    synced_at: Optional[str] = None,
     verify: Optional[dict] = None,
     status: int = 200,
 ):
+    after = after_snapshot_b64 or snapshot_b64
     body = {
         "ok": ok,
         "message": message,
         "row": row,
         "sheet": sheet,
-        "snapshotBase64": snapshot_b64,
+        "snapshotBase64": after,
+        "beforeSnapshotBase64": before_snapshot_b64,
+        "afterSnapshotBase64": after,
+        "syncedAt": synced_at or datetime.datetime.now().isoformat(timespec="seconds"),
         "verify": verify or {},
     }
     return jsonify(body), status
 
 
-def _finish_sync(ws, app_excel, row: int, sheet_name: str, message: str):
-    snapshot_b64, verify = capture_row_snapshot(ws, app_excel, row)
-    if snapshot_b64:
-        message = f"{message}（已生成 Excel 截图快照）"
+def _finish_sync(
+    ws,
+    app_excel,
+    row: int,
+    sheet_name: str,
+    message: str,
+    *,
+    before_snapshot_b64: Optional[str] = None,
+):
+    after_b64, verify = capture_row_snapshot(ws, app_excel, row)
+    if after_b64:
+        message = f"{message}（已生成 Excel 改前/改后截图）"
     else:
         message = f"{message}（截图失败，请查看校验数据）"
     return _sync_response(
@@ -418,7 +433,8 @@ def _finish_sync(ws, app_excel, row: int, sheet_name: str, message: str):
         message,
         row=row,
         sheet=sheet_name,
-        snapshot_b64=snapshot_b64,
+        before_snapshot_b64=before_snapshot_b64,
+        after_snapshot_b64=after_b64,
         verify=verify,
     )
 
@@ -467,6 +483,7 @@ def sync_outbound():
 
         ws = _get_ws(sheet_name)
         app_excel = _get_connector()
+        before_b64, _ = capture_row_snapshot(ws, app_excel, row)
         today = _today()
 
         ws.Cells(row, COL_QTY).Value = 0
@@ -491,7 +508,7 @@ def sync_outbound():
             pass
 
         actual_sheet = str(ws.Name)
-        return _finish_sync(ws, app_excel, row, actual_sheet, f"出库同步成功 row={row}")
+        return _finish_sync(ws, app_excel, row, actual_sheet, f"出库同步成功 row={row}", before_snapshot_b64=before_b64)
     except Exception as e:
         logger.exception("outbound sync failed")
         _reset_connector()
@@ -510,6 +527,7 @@ def sync_inbound():
 
         ws = _get_ws(sheet_name)
         app_excel = _get_connector()
+        before_b64, _ = capture_row_snapshot(ws, app_excel, row)
         today = _today()
 
         ws.Cells(row, COL_QTY).Value = 1
@@ -529,7 +547,7 @@ def sync_inbound():
             pass
 
         actual_sheet = str(ws.Name)
-        return _finish_sync(ws, app_excel, row, actual_sheet, f"入库同步成功 row={row}")
+        return _finish_sync(ws, app_excel, row, actual_sheet, f"入库同步成功 row={row}", before_snapshot_b64=before_b64)
     except Exception as e:
         logger.exception("inbound sync failed")
         _reset_connector()
@@ -544,6 +562,7 @@ def sync_new_inbound():
         app_excel = _get_connector()
         last_row = int(ws.Cells(ws.Rows.Count, COL_CERT_NO).End(-4162).Row)
         row = max(last_row + 1, DATA_START_ROW)
+        before_b64, _ = capture_row_snapshot(ws, app_excel, row)
 
         ws.Cells(row, COL_ARRIVAL_DATE).Value = data.get("arrivalDate") or _today()
         ws.Cells(row, COL_BATCH).Value = data.get("batch") or ""
@@ -555,7 +574,7 @@ def sync_new_inbound():
         ws.Cells(row, COL_REMARK).Value = data.get("remark") or ""
 
         actual_sheet = str(ws.Name)
-        return _finish_sync(ws, app_excel, row, actual_sheet, f"新品同步成功 row={row}")
+        return _finish_sync(ws, app_excel, row, actual_sheet, f"新品同步成功 row={row}", before_snapshot_b64=before_b64)
     except Exception as e:
         logger.exception("new_inbound sync failed")
         _reset_connector()
@@ -592,6 +611,7 @@ def sync_revert():
 
         ws = _get_ws(sheet_name)
         app_excel = _get_connector()
+        before_b64, _ = capture_row_snapshot(ws, app_excel, row)
 
         ws.Cells(row, COL_QTY).Value = snapshot.get("qty", 1)
         ws.Cells(row, COL_REMARK).Value = snapshot.get("remark") or ""
@@ -608,7 +628,7 @@ def sync_revert():
             pass
 
         actual_sheet = str(ws.Name)
-        return _finish_sync(ws, app_excel, row, actual_sheet, f"撤销同步成功 row={row}")
+        return _finish_sync(ws, app_excel, row, actual_sheet, f"撤销同步成功 row={row}", before_snapshot_b64=before_b64)
     except Exception as e:
         logger.exception("revert sync failed")
         _reset_connector()
@@ -628,6 +648,7 @@ def sync_update_row():
 
         ws = _get_ws(sheet_name)
         app_excel = _get_connector()
+        before_b64, _ = capture_row_snapshot(ws, app_excel, row)
 
         if "arrivalDate" in data:
             ws.Cells(row, COL_ARRIVAL_DATE).Value = data.get("arrivalDate") or ""
@@ -648,7 +669,7 @@ def sync_update_row():
             pass
 
         actual_sheet = str(ws.Name)
-        return _finish_sync(ws, app_excel, row, actual_sheet, f"行更新成功 row={row}")
+        return _finish_sync(ws, app_excel, row, actual_sheet, f"行更新成功 row={row}", before_snapshot_b64=before_b64)
     except Exception as e:
         logger.exception("update_row sync failed")
         _reset_connector()
@@ -775,12 +796,14 @@ def snapshot_by_cert(cert_no: str):
         ws = _get_ws(sheet_name)
         app_excel = _get_connector()
         snapshot_b64, verify = capture_row_snapshot(ws, app_excel, row)
+        synced_at = datetime.datetime.now().isoformat(timespec="seconds")
         return _sync_response(
             True,
             "截图成功",
             row=row,
             sheet=str(ws.Name),
-            snapshot_b64=snapshot_b64,
+            after_snapshot_b64=snapshot_b64,
+            synced_at=synced_at,
             verify=verify,
         )
     except Exception as e:

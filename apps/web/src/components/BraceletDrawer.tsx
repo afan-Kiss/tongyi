@@ -8,10 +8,10 @@ import { isPhotoAsset, mediaAssetUrl, mediaThumbUrl } from '@/lib/mediaAsset'
 import { ExcelSyncPanel } from '@/components/ExcelSyncPanel'
 import { InboundPhotoCapture, type InboundPhotoCaptureHandle } from '@/components/InboundPhotoCapture'
 import { LabelPrintPanel } from '@/components/LabelPrintPanel'
-import { LabelPrintPreview } from '@/components/LabelPrintPreview'
+import { LabelPrintEditor } from '@/components/LabelPrintEditor'
 import { StockOpPanel } from '@/components/StockOpPanel'
 import { fillLabelLinesFromBracelet } from '@/lib/labelPrintSync'
-import { loadLabelPrintMemory } from '@/lib/labelPrintMemory'
+import { getBarcodeDigits, loadLabelPrintMemory, type LabelPrintMemory } from '@/lib/labelPrintMemory'
 import { formatDateTime } from '@/lib/formatDateTime'
 
 interface Props {
@@ -60,6 +60,7 @@ export const BraceletDrawer: React.FC<Props> = ({
     remark: '',
   })
   const [detail, setDetail] = useState<Partial<BraceletDetail>>({})
+  const [labelMemory, setLabelMemory] = useState<LabelPrintMemory>(() => loadLabelPrintMemory())
   const photoRef = useRef<InboundPhotoCaptureHandle>(null)
 
   useEffect(() => {
@@ -91,9 +92,10 @@ export const BraceletDrawer: React.FC<Props> = ({
       remark: bracelet.remark || '',
     })
     setDetail({ description: bracelet.detail?.description || '' })
+    setLabelMemory(fillLabelLinesFromBracelet(loadLabelPrintMemory(), bracelet))
   }, [bracelet])
 
-  const labelMemory = useMemo(
+  const printLabelMemory = useMemo(
     () => (current ? fillLabelLinesFromBracelet(loadLabelPrintMemory(), current) : null),
     [current?.certNo, current?.ringSize, current?.cost, current?.batch, current?.barcodeValue, current?.labelPrice],
   )
@@ -141,6 +143,8 @@ export const BraceletDrawer: React.FC<Props> = ({
       }
       const r = await api.updateBracelet(current.certNo, {
         ...form,
+        labelPrice: labelMemory.lineFormats.price?.trim() || undefined,
+        barcodeValue: getBarcodeDigits(labelMemory) || undefined,
         detail: detail.description?.trim() ? { description: detail.description } : undefined,
       })
       const updated = r.data.bracelet
@@ -242,6 +246,21 @@ export const BraceletDrawer: React.FC<Props> = ({
                 </label>
               </div>
 
+              <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-3">
+                <h3 className="mb-2 text-sm font-semibold text-slate-800">吊牌内容</h3>
+                <LabelPrintEditor
+                  memory={labelMemory}
+                  onChange={setLabelMemory}
+                  persistToLocalStorage={false}
+                  formSync={{
+                    certNo: current.certNo,
+                    ringSize: form.ringSize,
+                    cost: form.cost,
+                    batch: form.batch,
+                  }}
+                />
+              </div>
+
               <div className="rounded-2xl border border-white/70 bg-white/80 p-3">
                 <h3 className="mb-2 text-sm font-semibold text-slate-800">照片</h3>
                 {photos.length > 0 && (
@@ -275,7 +294,22 @@ export const BraceletDrawer: React.FC<Props> = ({
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => { setEditing(false); setSaveMsg('') }}
+                  onClick={() => {
+                    setEditing(false)
+                    setSaveMsg('')
+                    if (current) {
+                      setForm({
+                        arrivalDate: current.arrivalDate || '',
+                        batch: current.batch || '',
+                        category: current.category || '',
+                        ringSize: current.ringSize || '',
+                        cost: current.cost || '',
+                        remark: current.remark || '',
+                      })
+                      setDetail({ description: current.detail?.description || '' })
+                      setLabelMemory(fillLabelLinesFromBracelet(loadLabelPrintMemory(), current))
+                    }
+                  }}
                   className="flex-1 rounded-full border border-slate-200 py-2.5 text-sm text-slate-700"
                 >
                   取消
@@ -300,7 +334,8 @@ export const BraceletDrawer: React.FC<Props> = ({
                   ['成本', current.cost],
                   ['到货', current.arrivalDate],
                   ['添加时间', formatDateTime(current.createdAt)],
-                  ['售价', current.actualPrice],
+                  ['吊牌售价', current.labelPrice],
+                  ['实际售价', current.actualPrice],
                   ['售出', current.soldDate],
                   ['退货', current.returnDate],
                   ['订单', current.orderNo],
@@ -348,10 +383,9 @@ export const BraceletDrawer: React.FC<Props> = ({
                 </div>
               )}
 
-              {showLabelPrint && labelMemory && (
-                <div className="mt-4 space-y-3">
-                  <LabelPrintPreview labelMemory={labelMemory} />
-                  <LabelPrintPanel bracelet={current} labelMemory={labelMemory} />
+              {showLabelPrint && printLabelMemory && (
+                <div className="mt-4">
+                  <LabelPrintPanel bracelet={current} labelMemory={printLabelMemory} />
                 </div>
               )}
 

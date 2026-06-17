@@ -20,6 +20,8 @@ export interface BraceletUpdateInput {
   ringSize?: string
   cost?: string
   remark?: string
+  labelPrice?: string
+  barcodeValue?: string
   detail?: BraceletDetailInput
 }
 
@@ -41,6 +43,8 @@ export async function updateBraceletByCert(certNo: string, input: BraceletUpdate
   if (input.ringSize !== undefined) basicData.ringSize = input.ringSize || null
   if (input.cost !== undefined) basicData.cost = input.cost || null
   if (input.remark !== undefined) basicData.remark = input.remark || null
+  if (input.labelPrice !== undefined) basicData.labelPrice = input.labelPrice || null
+  if (input.barcodeValue !== undefined) basicData.barcodeValue = input.barcodeValue || null
 
   if (Object.keys(basicData).length > 0) {
     await braceletRepo.update(bracelet.id, basicData)

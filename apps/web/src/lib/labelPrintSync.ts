@@ -1,4 +1,5 @@
 import type { LabelPrintMemory } from '@/lib/labelPrintMemory'
+import { normalizeBarcodePrefix } from '@/lib/labelPrintMemory'
 import { DEFAULT_LABEL_LINES } from '@/lib/labelFormat'
 
 /** 圈口打印保留一位小数 */
@@ -57,19 +58,20 @@ export function parseRingInteger(raw: string | null | undefined): number | null 
 }
 
 /**
- * 条形码：固定 02 + (成本×3+10) + 圈口整数（拼接，非相加）
- * 例：成本1000、圈口57 → 02301057
+ * 条形码：前缀 + (成本×3+10) + 圈口整数（拼接，非相加）
+ * 例：前缀 02、成本 1000、圈口 57 → 02301057
  */
 export function computeBarcodeDigits(
-  batch: string | null | undefined,
   cost: string | null | undefined,
   ringSize: string | null | undefined,
+  prefix?: string | null,
 ): string | null {
   const costN = parseNumber(cost)
   const ringN = parseRingInteger(ringSize)
   if (costN === null || ringN === null) return null
   const middle = Math.round(costN * 3 + 10)
-  return `02${middle}${ringN}`
+  const pre = normalizeBarcodePrefix(prefix)
+  return `${pre}${middle}${ringN}`
 }
 
 export type LabelFormSync = {
@@ -108,7 +110,7 @@ export function fillLabelLinesFromBracelet(
   }
 
   const stored = bracelet.barcodeValue?.trim()
-  const computed = computeBarcodeDigits(bracelet.batch, bracelet.cost, bracelet.ringSize)
+  const computed = computeBarcodeDigits(bracelet.cost, bracelet.ringSize, memory.barcodePrefix)
   const barcode =
     (stored && !(stored.startsWith('03') && /^\d+$/.test(stored)) ? stored : null) ||
     computed ||
@@ -144,11 +146,11 @@ export function fillLabelLinesFromForm(
 
   const shouldBarcode = opts?.overwriteBarcode || !memory.barcodeManual
   if (shouldBarcode) {
-    const barcode = computeBarcodeDigits(form.batch, form.cost, form.ringSize)
+    const barcode = computeBarcodeDigits(form.cost, form.ringSize, memory.barcodePrefix)
     if (barcode) lineFormats.barcode = barcode
   } else {
     const prev = lineFormats.barcode?.trim() ?? ''
-    const barcode = computeBarcodeDigits(form.batch, form.cost, form.ringSize)
+    const barcode = computeBarcodeDigits(form.cost, form.ringSize, memory.barcodePrefix)
     if (barcode && prev.startsWith('03') && /^\d+$/.test(prev)) {
       lineFormats.barcode = barcode
     }

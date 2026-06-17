@@ -504,12 +504,6 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
           </div>
         </div>
 
-        <p className="text-center text-[11px] text-slate-400">
-          {code
-            ? '电脑填编号、手机连拍；登记下一条时只改编号，不用重新扫码'
-            : '可先扫码连接手机，再填写编号拍照'}
-        </p>
-
         <div className="flex gap-2">
           <button
             type="button"

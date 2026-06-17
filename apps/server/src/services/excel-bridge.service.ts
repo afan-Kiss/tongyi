@@ -6,6 +6,9 @@ export interface ExcelSyncResult {
   row?: number
   sheet?: string
   snapshotBase64?: string
+  beforeSnapshotBase64?: string
+  afterSnapshotBase64?: string
+  syncedAt?: string
   verify?: Record<string, string>
 }
 
@@ -24,12 +27,16 @@ export async function syncToExcelBridge(
       signal: AbortSignal.timeout(20000),
     })
     const data = (await res.json()) as ExcelSyncResult & { ok?: boolean }
+    const after = data.afterSnapshotBase64 ?? data.snapshotBase64
     return {
       ok: !!data.ok,
       message: data.message || (data.ok ? 'Excel 同步成功' : 'Excel 同步失败'),
       row: data.row,
       sheet: data.sheet,
-      snapshotBase64: data.snapshotBase64,
+      snapshotBase64: after,
+      beforeSnapshotBase64: data.beforeSnapshotBase64,
+      afterSnapshotBase64: after,
+      syncedAt: data.syncedAt,
       verify: data.verify,
     }
   } catch (e) {
