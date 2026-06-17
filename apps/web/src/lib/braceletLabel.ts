@@ -4,7 +4,7 @@ import type { Bracelet } from '@/api/types'
 export function braceletLabelValue(bracelet: Bracelet, key: string): string {
   if (key === 'barcode') return bracelet.certNo
   if (key === 'weightGram') return bracelet.detail?.weightGram || ''
-  if (key === 'price') return bracelet.actualPrice || bracelet.cost || ''
+  if (key === 'price') return bracelet.labelPrice || bracelet.actualPrice || ''
   const record = bracelet as unknown as Record<string, string | undefined>
   return record[key] || ''
 }

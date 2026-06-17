@@ -9,6 +9,8 @@ export interface Bracelet {
   category?: string | null
   ringSize?: string | null
   cost?: string | null
+  /** 吊牌「售价」行（登记时写入，如 售价:9000元） */
+  labelPrice?: string | null
   remark?: string | null
   orderNo?: string | null
   returnDate?: string | null
@@ -19,6 +21,8 @@ export interface Bracelet {
   detail?: BraceletDetail | null
   mediaAssets?: MediaAsset[]
   _count?: { mediaAssets: number }
+  /** 系统登记/添加时间 */
+  createdAt?: string | null
 }
 
 /** SQL 专有扩展详情（不进 Excel） */
@@ -97,6 +101,8 @@ export interface NewBraceletBody {
   detail?: Partial<BraceletDetail>
   /** 吊牌条形码内容，登记时写入供扫码查询 */
   barcodeValue?: string
+  /** 吊牌「售价」行文字，与成本/实际售价无关 */
+  labelPrice?: string
 }
 
 /** Excel 行只读预览（标签入库预填） */

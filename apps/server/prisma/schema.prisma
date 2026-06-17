@@ -19,6 +19,8 @@ model Bracelet {
   category      String?
   ringSize      String?
   cost          String?
+  /// 吊牌「售价」行文字（如 售价:9000元），与 Excel 成本/实际售价无关
+  labelPrice    String?
   remark        String?
   orderNo       String?
   returnDate    String?

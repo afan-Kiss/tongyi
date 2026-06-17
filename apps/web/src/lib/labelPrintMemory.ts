@@ -8,6 +8,8 @@ export interface LabelPrintMemory {
   lineFormats: Record<string, string>
   /** 用户手改条形码后，批次/成本/圈口变化不再自动改条形码 */
   barcodeManual?: boolean
+  /** 用户手改售价后，成本变化不再自动改售价 */
+  priceManual?: boolean
 }
 
 function defaultLineFormats(): Record<string, string> {
@@ -50,7 +52,7 @@ function migrateLegacyBarcode(formats: Record<string, string>): Record<string, s
 }
 
 export function loadLabelPrintMemory(): LabelPrintMemory {
-  const parsed = readJson<{ lineFormats?: Record<string, string>; barcodeManual?: boolean }>(STORAGE_KEY, {})
+  const parsed = readJson<{ lineFormats?: Record<string, string>; barcodeManual?: boolean; priceManual?: boolean }>(STORAGE_KEY, {})
   let lineFormats = { ...defaultLineFormats(), ...(parsed.lineFormats ?? {}) }
   if (lineFormats.barcode === '[编号]' || lineFormats.barcode === '{certNo}') {
     lineFormats.barcode = ''
@@ -62,12 +64,12 @@ export function loadLabelPrintMemory(): LabelPrintMemory {
   if (lineFormats.price?.startsWith('售价') && !lineFormats.price.startsWith('售价:')) {
     lineFormats.price = lineFormats.price.replace(/^售价/, '售价:')
   }
-  return { lineFormats, barcodeManual: parsed.barcodeManual ?? false }
+  return { lineFormats, barcodeManual: parsed.barcodeManual ?? false, priceManual: parsed.priceManual ?? false }
 }
 
 /** 新建一条标签入库时的默认吊牌（不读上次编号/条形码） */
 export function createDefaultLabelPrintMemory(): LabelPrintMemory {
-  return { lineFormats: defaultLineFormats(), barcodeManual: false }
+  return { lineFormats: defaultLineFormats(), barcodeManual: false, priceManual: false }
 }
 
 export function saveLabelPrintMemory(mem: LabelPrintMemory): void {

@@ -184,6 +184,7 @@ export async function executeNewInbound(input: NewBraceletDto): Promise<Ok<Opera
     category: input.category || '',
     ringSize: input.ringSize || '',
     cost: input.cost || '',
+    labelPrice: input.labelPrice?.trim() || null,
     remark: input.remark || '',
   })
 
@@ -254,6 +255,7 @@ export async function executeRegisterBracelet(input: NewBraceletDto): Promise<Ok
     category: input.category ?? row?.category ?? '',
     ringSize: input.ringSize ?? row?.ringSize ?? '',
     cost: input.cost ?? row?.cost ?? '',
+    labelPrice: input.labelPrice?.trim() || null,
     remark: input.remark ?? row?.remark ?? '',
     orderNo: row?.orderNo || null,
     returnDate: row?.returnDate || null,

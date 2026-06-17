@@ -31,6 +31,8 @@ export const CertNoAutocomplete: React.FC<Props> = ({
   const [activeIdx, setActiveIdx] = useState(-1)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pickedRef = useRef(false)
+  const suppressOpenRef = useRef(false)
+  const inputFocusedRef = useRef(false)
 
   const search = useCallback(async (q: string) => {
     const query = q.trim()
@@ -44,8 +46,12 @@ export const CertNoAutocomplete: React.FC<Props> = ({
       const r = await excelApi.searchCertIndex(query, 15)
       const hits = r.data.items.filter((item) => certMatchesAutocomplete(item.certNo, query))
       setItems(hits)
-      setOpen(hits.length > 0)
-      setActiveIdx(hits.length > 0 ? 0 : -1)
+      if (!suppressOpenRef.current && inputFocusedRef.current) {
+        setOpen(hits.length > 0)
+        setActiveIdx(hits.length > 0 ? 0 : -1)
+      } else {
+        setOpen(false)
+      }
     } catch {
       setItems([])
       setOpen(false)
@@ -75,10 +81,16 @@ export const CertNoAutocomplete: React.FC<Props> = ({
   }, [])
 
   const pick = (entry: CertIndexEntry) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
     pickedRef.current = true
+    suppressOpenRef.current = true
     onChange(entry.certNo)
     setOpen(false)
+    setActiveIdx(-1)
     onSelect?.(entry)
+    window.setTimeout(() => {
+      suppressOpenRef.current = false
+    }, 350)
   }
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -110,14 +122,18 @@ export const CertNoAutocomplete: React.FC<Props> = ({
         aria-expanded={open}
         onChange={(e) => onChange(e.target.value)}
         onFocus={() => {
-          if (items.length > 0) setOpen(true)
+          inputFocusedRef.current = true
+          if (items.length > 0 && !suppressOpenRef.current) setOpen(true)
         }}
         onBlur={() => {
-          if (pickedRef.current) {
-            pickedRef.current = false
-            return
-          }
-          onBlur?.()
+          inputFocusedRef.current = false
+          window.setTimeout(() => {
+            if (pickedRef.current) {
+              pickedRef.current = false
+              return
+            }
+            onBlur?.()
+          }, 0)
         }}
         onKeyDown={onKeyDown}
       />
@@ -135,7 +151,7 @@ export const CertNoAutocomplete: React.FC<Props> = ({
               className={`cursor-pointer px-3 py-2.5 text-sm touch-manipulation ${
                 idx === activeIdx ? 'bg-rose-50 text-rose-900' : 'text-slate-800 hover:bg-slate-50'
               }`}
-              onPointerDown={(e) => {
+              onMouseDown={(e) => {
                 e.preventDefault()
                 pick(item)
               }}

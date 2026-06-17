@@ -142,7 +142,7 @@ export const photoRelayApi = {
       body: JSON.stringify({ stationId: stationId || undefined }),
     }),
   syncCert: (sessionId: string, certNo: string) =>
-    request<{ data: { certNo: string; changed: boolean } }>(
+    request<{ data: { certNo: string; changed: boolean; photoSeq: number } }>(
       `/photo-relay/${encodeURIComponent(sessionId)}/cert`,
       { method: 'PATCH', body: JSON.stringify({ certNo }) },
     ),
@@ -159,6 +159,7 @@ export const photoRelayApi = {
         frameAt: number
         phoneOnline: boolean
         photos: { seq: number; dataUrl: string; at: number }[]
+        photoSeq: number
       }
     }>(`/photo-relay/${encodeURIComponent(sessionId)}/poll?lastPhotoSeq=${lastPhotoSeq}`),
   heartbeat: (sessionId: string, role: 'phone' | 'pc') =>

@@ -3,6 +3,7 @@ import { api, type Bracelet } from '@/lib/api'
 import { isPhotoAsset, mediaThumbUrl } from '@/lib/mediaAsset'
 import { BraceletDrawer } from '@/components/BraceletDrawer'
 import { onInventoryRefresh } from '@/lib/inventoryRefresh'
+import { formatDateTime } from '@/lib/formatDateTime'
 
 export const InventoryPage: React.FC = () => {
   const [q, setQ] = useState('')
@@ -73,7 +74,10 @@ export const InventoryPage: React.FC = () => {
                 {item.qty === 1 ? '在库' : '已出'}
               </span>
             </div>
-            <p className="mt-1 text-xs text-slate-500">{item.batch || '—'} · 圈口 {item.ringSize || '—'} · {item.category || '—'}</p>
+            <p className="mt-1 text-xs text-slate-500">
+              {item.batch || '—'} · 圈口 {item.ringSize || '—'} · {item.category || '—'}
+            </p>
+            <p className="mt-0.5 text-[10px] text-slate-400">添加 {formatDateTime(item.createdAt)}</p>
             {(item.mediaAssets?.length || item._count?.mediaAssets) ? (
               <div className="mt-2">
                 {item.mediaAssets && item.mediaAssets.filter(isPhotoAsset).length > 0 ? (

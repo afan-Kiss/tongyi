@@ -26,6 +26,7 @@ export const LabelPrintEditor: React.FC<Props> = ({ memory, onChange, formSync }
       ...memory,
       lineFormats: { ...memory.lineFormats, [id]: format },
       barcodeManual: id === 'barcode' ? true : memory.barcodeManual,
+      priceManual: id === 'price' ? true : memory.priceManual,
     }
     saveLabelPrintMemory(next)
     onChange(next)
@@ -34,9 +35,9 @@ export const LabelPrintEditor: React.FC<Props> = ({ memory, onChange, formSync }
   const fillFromForm = () => {
     if (!formSync) return
     const next = fillLabelLinesFromForm(
-      { ...memory, barcodeManual: false },
+      { ...memory, barcodeManual: false, priceManual: false },
       formSync,
-      { overwriteBarcode: true },
+      { overwriteBarcode: true, overwritePrice: true },
     )
     saveLabelPrintMemory(next)
     onChange(next)

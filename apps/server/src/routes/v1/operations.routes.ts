@@ -1,5 +1,4 @@
 import { Router } from 'express'
-import { CERT_NO_REGEX } from '../../config/env'
 import { normalizeCertNo } from '../../domain/inventory.rules'
 import { allocateNextCertNo } from '../../services/cert-no.service'
 import {
@@ -40,7 +39,6 @@ operationsRouter.post('/inbound', async (req, res) => {
 
 operationsRouter.post('/new', async (req, res) => {
   const certNo = normalizeCertNo(req.body.certNo || '')
-  if (!CERT_NO_REGEX.test(certNo)) return sendErr(res, '编号格式不正确')
   const result = await executeNewInbound({ ...req.body, certNo })
   if (!result.ok) return sendErr(res, result.message)
   sendOk(res, result)
@@ -54,7 +52,6 @@ operationsRouter.get('/excel-row/:certNo', async (req, res) => {
 
 operationsRouter.post('/register', async (req, res) => {
   const certNo = normalizeCertNo(req.body.certNo || '')
-  if (!CERT_NO_REGEX.test(certNo)) return sendErr(res, '编号格式不正确')
   const result = await executeRegisterBracelet({ ...req.body, certNo })
   if (!result.ok) return sendErr(res, result.message)
   sendOk(res, result)

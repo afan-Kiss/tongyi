@@ -5,6 +5,7 @@ import type { Bracelet } from '@/api/types'
 import { AppMessageDialog } from '@/components/AppMessageDialog'
 
 import { printBraceletTag } from '@/lib/printBraceletTag'
+import { formatPrintSentMessage } from '@/lib/formatPrintSentMessage'
 import type { LabelPrintMemory } from '@/lib/labelPrintMemory'
 
 interface Props {
@@ -32,10 +33,11 @@ export const LabelPrintPanel: React.FC<Props> = ({
     setPrinting(true)
     setStatus('正在发送到标签机…')
     try {
-      const msg = await printBraceletTag(
+      await printBraceletTag(
         bracelet,
         labelMemoryProp ? { labelMemory: labelMemoryProp } : undefined,
       )
+      const msg = formatPrintSentMessage({ bracelet, labelMemory: labelMemoryProp })
       setStatus(msg)
       setMessageDialog({ title: '打印已发送', message: msg, variant: 'success' })
     } catch (e) {

@@ -27,7 +27,7 @@ photoRelayRouter.post('/', (req, res) => {
 photoRelayRouter.patch('/:sessionId/cert', (req, res) => {
   const result = setPhotoRelayActiveCert(req.params.sessionId, String(req.body?.certNo || ''))
   if (!result.ok) return sendErr(res, result.message, 404)
-  sendOk(res, { certNo: result.certNo, changed: result.changed })
+  sendOk(res, { certNo: result.certNo, changed: result.changed, photoSeq: result.photoSeq })
 })
 
 photoRelayRouter.get('/:sessionId', (req, res) => {
@@ -53,6 +53,7 @@ photoRelayRouter.get('/:sessionId/poll', (req, res) => {
     frameAt: result.frameAt,
     phoneOnline: result.phoneOnline,
     photos: result.photos,
+    photoSeq: result.photoSeq,
   })
 })
 

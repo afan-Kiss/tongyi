@@ -25,6 +25,7 @@ import { useRegisterInbound, useReturnInbound } from '@/hooks/useScanWorkbench'
 import { api } from '@/lib/api'
 
 import { printBraceletTag } from '@/lib/printBraceletTag'
+import { formatPrintSentMessage } from '@/lib/formatPrintSentMessage'
 
 import type { Bracelet, BraceletDetail, CertIndexEntry } from '@/api/types'
 
@@ -47,7 +48,7 @@ import {
 } from '@/lib/inboundFormStorage'
 
 import { loadLabelPrintMemory, saveLabelPrintMemory, getBarcodeDigits, createDefaultLabelPrintMemory, type LabelPrintMemory } from '@/lib/labelPrintMemory'
-import { fillLabelLinesFromForm, computeBarcodeDigits } from '@/lib/labelPrintSync'
+import { fillLabelLinesFromForm } from '@/lib/labelPrintSync'
 import { emitInventoryRefresh } from '@/lib/inventoryRefresh'
 
 const BASIC_FIELDS = [
@@ -172,14 +173,14 @@ export const InboundFormPage: React.FC = () => {
       }))
       setLabelMemory((mem) =>
         fillLabelLinesFromForm(
-          { ...mem, barcodeManual: false },
+          { ...mem, barcodeManual: false, priceManual: false },
           {
             certNo: code,
             batch: row.batch,
             ringSize: row.ringSize,
             cost: row.cost,
           },
-          { overwriteBarcode: true },
+          { overwriteBarcode: true, overwritePrice: true },
         ),
       )
       setExcelHint(row.excelRow ? `已从索引预填（Excel 第 ${row.excelRow} 行，未改 Excel）` : '已从索引预填')
@@ -255,14 +256,26 @@ export const InboundFormPage: React.FC = () => {
   }, [labelMemory])
 
   useEffect(() => {
-    if (kind !== 'register' || labelMemory.barcodeManual) return
-    const barcode = computeBarcodeDigits(form.batch, form.cost, form.ringSize)
-    if (!barcode) return
+    if (kind !== 'register') return
     setLabelMemory((mem) => {
-      if (mem.barcodeManual || mem.lineFormats.barcode === barcode) return mem
-      return { ...mem, lineFormats: { ...mem.lineFormats, barcode } }
+      const next = fillLabelLinesFromForm(
+        mem,
+        {
+          certNo: form.certNo,
+          ringSize: form.ringSize,
+          cost: form.cost,
+          batch: form.batch,
+        },
+        { overwriteBarcode: false, overwritePrice: false },
+      )
+      const unchanged =
+        next.lineFormats.cert === mem.lineFormats.cert &&
+        next.lineFormats.ring === mem.lineFormats.ring &&
+        next.lineFormats.price === mem.lineFormats.price &&
+        next.lineFormats.barcode === mem.lineFormats.barcode
+      return unchanged ? mem : next
     })
-  }, [kind, form.batch, form.cost, form.ringSize, labelMemory.barcodeManual])
+  }, [kind, form.certNo, form.ringSize, form.cost, form.batch])
 
   useEffect(() => {
 
@@ -382,6 +395,7 @@ export const InboundFormPage: React.FC = () => {
       const data = await registerInbound.submit({
         ...form,
         barcodeValue: barcodeValue || undefined,
+        labelPrice: labelMemory.lineFormats.price?.trim() || undefined,
         detail: hasDetail ? { description: detail.description } : undefined,
       })
       setCreated(data.bracelet)
@@ -396,10 +410,15 @@ export const InboundFormPage: React.FC = () => {
       const msg = data.excelSync?.message || '已登记到系统（未修改 Excel）'
       setStatus(photoWarn ? `${msg} · ${photoWarn}` : `${msg}，正在打印吊牌…`)
       try {
-        const printMsg = await printBraceletTag(data.bracelet, { labelMemory })
-        const done = photoWarn ? `${msg} · ${photoWarn} · ${printMsg}` : `${msg} · ${printMsg}`
+        await printBraceletTag(data.bracelet, { labelMemory })
+        const dialogMsg = formatPrintSentMessage({
+          bracelet: data.bracelet,
+          labelMemory,
+          excelSync: data.excelSync,
+        })
         resetRegisterWorkbench()
-        setMessageDialog({ title: '打印已发送', message: `${done}\n\n表单已清空，可继续下一条。`, variant: 'success' })
+        setStatus(photoWarn ? `${dialogMsg} · ${photoWarn}` : dialogMsg)
+        setMessageDialog({ title: '打印已发送', message: dialogMsg, variant: 'success' })
       } catch (e) {
         const err = e instanceof Error ? e.message : String(e)
         const fail = photoWarn ? `${msg} · ${photoWarn} · 打印失败：${err}` : `${msg}，但打印失败：${err}`

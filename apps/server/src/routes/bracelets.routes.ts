@@ -9,7 +9,6 @@ import {
   revertOperation,
 } from '../services/bracelet.service'
 import { fetchExcelSnapshot } from '../services/excel-bridge.service'
-import { CERT_NO_REGEX } from '../config/env'
 import { normalizeCertNo } from '../services/inventory.service'
 
 export const braceletsRouter = Router()
@@ -59,10 +58,6 @@ braceletsRouter.post('/inbound', async (req, res) => {
 
 braceletsRouter.post('/new', async (req, res) => {
   const certNo = normalizeCertNo(req.body.certNo || '')
-  if (!CERT_NO_REGEX.test(certNo)) {
-    res.status(400).json({ ok: false, message: '编号格式不正确' })
-    return
-  }
   const result = await createBracelet({ ...req.body, certNo })
   if (!result.ok) {
     res.status(400).json(result)

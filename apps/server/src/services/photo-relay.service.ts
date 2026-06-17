@@ -90,7 +90,7 @@ export function setPhotoRelayActiveCert(sessionId: string, certNo: string) {
   }
   session.pcLastSeen = Date.now()
   touch(session)
-  return { ok: true as const, certNo: code, changed }
+  return { ok: true as const, certNo: code, changed, photoSeq: session.photoSeq }
 }
 
 export function getPhotoRelaySession(sessionId: string) {
@@ -150,5 +150,6 @@ export function pollPhotoRelay(sessionId: string, lastPhotoSeq: number) {
     frameAt: session.frameAt,
     phoneOnline: now - session.phoneLastSeen < PHONE_ONLINE_MS,
     photos: session.photos.filter((p) => p.seq > lastPhotoSeq),
+    photoSeq: session.photoSeq,
   }
 }

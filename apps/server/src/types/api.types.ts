@@ -58,6 +58,8 @@ export interface NewBraceletDto {
   detail?: BraceletDetailDto
   /** 吊牌条形码内容（扫码识别用，可与 certNo 不同） */
   barcodeValue?: string
+  /** 吊牌「售价」行文字（如 售价:9000元） */
+  labelPrice?: string
 }
 
 export interface BraceletDetailDto {

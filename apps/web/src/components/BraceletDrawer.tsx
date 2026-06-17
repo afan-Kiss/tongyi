@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Pencil, Trash2, X } from 'lucide-react'
 import type { Bracelet, BraceletDetail, ExcelSyncResult, MediaAsset } from '@/lib/api'
@@ -6,8 +6,12 @@ import { api } from '@/lib/api'
 import { emitInventoryRefresh } from '@/lib/inventoryRefresh'
 import { isPhotoAsset, mediaAssetUrl, mediaThumbUrl } from '@/lib/mediaAsset'
 import { ExcelSyncPanel } from '@/components/ExcelSyncPanel'
-import { InboundPhotoCapture } from '@/components/InboundPhotoCapture'
+import { InboundPhotoCapture, type InboundPhotoCaptureHandle } from '@/components/InboundPhotoCapture'
 import { LabelPrintPanel } from '@/components/LabelPrintPanel'
+import { LabelPrintPreview } from '@/components/LabelPrintPreview'
+import { fillLabelLinesFromBracelet } from '@/lib/labelPrintSync'
+import { loadLabelPrintMemory } from '@/lib/labelPrintMemory'
+import { formatDateTime } from '@/lib/formatDateTime'
 
 interface Props {
   bracelet: Bracelet | null
@@ -53,6 +57,7 @@ export const BraceletDrawer: React.FC<Props> = ({
     remark: '',
   })
   const [detail, setDetail] = useState<Partial<BraceletDetail>>({})
+  const photoRef = useRef<InboundPhotoCaptureHandle>(null)
 
   useEffect(() => {
     if (!open) return
@@ -84,6 +89,11 @@ export const BraceletDrawer: React.FC<Props> = ({
     })
     setDetail({ description: bracelet.detail?.description || '' })
   }, [bracelet])
+
+  const labelMemory = useMemo(
+    () => (current ? fillLabelLinesFromBracelet(loadLabelPrintMemory(), current) : null),
+    [current?.certNo, current?.ringSize, current?.cost, current?.batch, current?.barcodeValue, current?.labelPrice],
+  )
 
   if (!open || !current) return null
 
@@ -123,6 +133,9 @@ export const BraceletDrawer: React.FC<Props> = ({
     setExcelSync(null)
     setPartialSuccess(false)
     try {
+      if (photoRef.current?.pendingCount()) {
+        await photoRef.current.flushPending(current.certNo)
+      }
       const r = await api.updateBracelet(current.certNo, {
         ...form,
         detail: detail.description?.trim() ? { description: detail.description } : undefined,
@@ -136,9 +149,11 @@ export const BraceletDrawer: React.FC<Props> = ({
         setPartialSuccess(true)
         setExcelSync(r.data.excelSync)
         setSaveMsg('已保存到数据库，Excel 同步失败')
+        setEditing(false)
       } else if (r.data.excelSync && !r.data.excelSync.ok) {
         setExcelSync(r.data.excelSync)
         setSaveMsg('已保存到数据库')
+        setEditing(false)
       } else {
         setSaveMsg('保存成功')
         setEditing(false)
@@ -242,7 +257,15 @@ export const BraceletDrawer: React.FC<Props> = ({
                     ))}
                   </div>
                 )}
-                <InboundPhotoCapture certNo={current.certNo} onUploaded={() => { void refreshBracelet() }} />
+                <InboundPhotoCapture
+                  ref={photoRef}
+                  certNo={current.certNo}
+                  deferUpload
+                  disabled={saving}
+                  onUploaded={() => {
+                    void refreshBracelet()
+                  }}
+                />
               </div>
 
               <div className="flex gap-2">
@@ -263,14 +286,6 @@ export const BraceletDrawer: React.FC<Props> = ({
                 </button>
               </div>
               {saveMsg && <p className="text-center text-xs text-slate-600">{saveMsg}</p>}
-              {(excelSync || partialSuccess) && (
-                <ExcelSyncPanel
-                  result={excelSync}
-                  partialSuccess={partialSuccess}
-                  partialMessage="数据库已更新，Excel 同步失败"
-                  onClose={() => { setExcelSync(null); setPartialSuccess(false) }}
-                />
-              )}
             </div>
           ) : (
             <>
@@ -280,6 +295,7 @@ export const BraceletDrawer: React.FC<Props> = ({
                   ['圈口', current.ringSize],
                   ['成本', current.cost],
                   ['到货', current.arrivalDate],
+                  ['添加时间', formatDateTime(current.createdAt)],
                   ['售价', current.actualPrice],
                   ['售出', current.soldDate],
                   ['退货', current.returnDate],
@@ -328,12 +344,22 @@ export const BraceletDrawer: React.FC<Props> = ({
                 </div>
               )}
 
-              {showLabelPrint && (
-                <div className="mt-4">
-                  <LabelPrintPanel bracelet={current} />
+              {showLabelPrint && labelMemory && (
+                <div className="mt-4 space-y-3">
+                  <LabelPrintPreview labelMemory={labelMemory} />
+                  <LabelPrintPanel bracelet={current} labelMemory={labelMemory} />
                 </div>
               )}
             </>
+          )}
+
+          {(excelSync || partialSuccess) && (
+            <ExcelSyncPanel
+              result={excelSync}
+              partialSuccess={partialSuccess}
+              partialMessage="数据库已更新，Excel 同步失败"
+              onClose={() => { setExcelSync(null); setPartialSuccess(false) }}
+            />
           )}
         </div>
 

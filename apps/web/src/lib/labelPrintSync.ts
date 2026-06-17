@@ -1,4 +1,5 @@
 import type { LabelPrintMemory } from '@/lib/labelPrintMemory'
+import { DEFAULT_LABEL_LINES } from '@/lib/labelFormat'
 
 /** 圈口打印保留一位小数 */
 export function formatRingSizeForLabel(raw: string | null | undefined): string {
@@ -17,6 +18,13 @@ function formatPriceForLabel(raw: string | null | undefined): string {
   if (body.startsWith('售价:')) return body.endsWith('元') ? body : `${body}元`
   if (body.startsWith('售价')) return body.replace(/^售价/, '售价:').replace(/元?$/, '元')
   return `售价:${body}元`
+}
+
+/** 吊牌售价 = 成本 × 3（与条形码中间段规则一致） */
+export function computeLabelPriceFromCost(cost: string | null | undefined): string | null {
+  const costN = parseNumber(cost)
+  if (costN === null) return null
+  return String(Math.round(costN * 3))
 }
 
 function parseNumber(raw: string | null | undefined): number | null {
@@ -69,6 +77,7 @@ export type LabelFormSync = {
   ringSize?: string | null
   cost?: string | null
   batch?: string | null
+  labelPrice?: string | null
 }
 
 /** 从库存记录填充吊牌各行（查询/抽屉重打，不用 localStorage 里上一件的条形码） */
@@ -80,18 +89,23 @@ export function fillLabelLinesFromBracelet(
     cost?: string | null
     batch?: string | null
     barcodeValue?: string | null
-    category?: string | null
+    labelPrice?: string | null
   },
 ): LabelPrintMemory {
   const lineFormats = { ...memory.lineFormats }
+  const defaultTitle = DEFAULT_LABEL_LINES.find((l) => l.id === 'title')?.format
+  if (defaultTitle) lineFormats.title = defaultTitle
   const certNo = bracelet.certNo?.trim().toUpperCase()
   if (certNo) lineFormats.cert = `编号:${certNo}`
   const ring = formatRingSizeForLabel(bracelet.ringSize)
   if (ring) lineFormats.ring = `圈口:${ring}`
-  const cost = bracelet.cost?.trim()
-  if (cost) lineFormats.price = formatPriceForLabel(cost)
-  const category = bracelet.category?.trim()
-  if (category) lineFormats.title = category
+  const labelPrice = bracelet.labelPrice?.trim()
+  if (labelPrice) {
+    lineFormats.price = labelPrice
+  } else {
+    const defaultPrice = DEFAULT_LABEL_LINES.find((l) => l.id === 'price')?.format
+    if (defaultPrice) lineFormats.price = defaultPrice
+  }
 
   const barcode =
     bracelet.barcodeValue?.trim() ||
@@ -106,15 +120,24 @@ export function fillLabelLinesFromBracelet(
 export function fillLabelLinesFromForm(
   memory: LabelPrintMemory,
   form: LabelFormSync,
-  opts?: { overwriteBarcode?: boolean },
+  opts?: { overwriteBarcode?: boolean; overwritePrice?: boolean },
 ): LabelPrintMemory {
   const lineFormats = { ...memory.lineFormats }
   const certNo = form.certNo?.trim().toUpperCase()
   if (certNo) lineFormats.cert = `编号:${certNo}`
   const ring = formatRingSizeForLabel(form.ringSize)
   if (ring) lineFormats.ring = `圈口:${ring}`
-  const cost = form.cost?.trim()
-  if (cost) lineFormats.price = formatPriceForLabel(cost)
+
+  const shouldPrice = opts?.overwritePrice || !memory.priceManual
+  if (shouldPrice) {
+    const labelPrice = form.labelPrice?.trim()
+    if (labelPrice) {
+      lineFormats.price = labelPrice
+    } else {
+      const priceDigits = computeLabelPriceFromCost(form.cost)
+      if (priceDigits) lineFormats.price = formatPriceForLabel(priceDigits)
+    }
+  }
 
   const shouldBarcode = opts?.overwriteBarcode || !memory.barcodeManual
   if (shouldBarcode) {

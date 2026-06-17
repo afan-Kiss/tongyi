@@ -46,6 +46,7 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
   const [phoneOnline, setPhoneOnline] = useState(false)
   const [mobileUrl, setMobileUrl] = useState('')
   const [qrDataUrl, setQrDataUrl] = useState('')
+  const [relayCertReady, setRelayCertReady] = useState(false)
 
   const pendingRef = useRef<PendingPhoto[]>([])
   const prevCodeRef = useRef('')
@@ -100,10 +101,12 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
     setThumbs((prev) => prev.filter((_, i) => i !== index))
     setStatus(
       pendingRef.current.length
-        ? `已拍摄 ${pendingRef.current.length} 张（登记后自动上传）`
+        ? deferUpload
+          ? `已拍摄 ${pendingRef.current.length} 张（登记后自动上传）`
+          : `已选 ${pendingRef.current.length} 张（保存时上传）`
         : '已清空待上传照片',
     )
-  }, [])
+  }, [deferUpload])
 
   const addPendingPhoto = useCallback(
     async (dataUrl: string, name: string, flashOn = true) => {
@@ -114,9 +117,32 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
         setFlash(true)
         window.setTimeout(() => setFlash(false), 180)
       }
-      setStatus(`已拍摄 ${pendingRef.current.length} 张（登记后自动上传）`)
+      setStatus(
+        deferUpload
+          ? `已拍摄 ${pendingRef.current.length} 张（登记后自动上传）`
+          : `已收到 ${pendingRef.current.length} 张（保存时上传）`,
+      )
     },
-    [],
+    [deferUpload],
+  )
+
+  const uploadRelayPhoto = useCallback(
+    async (dataUrl: string, name: string) => {
+      if (!code || disabled) return
+      setUploading(true)
+      try {
+        const normalized = await normalizePhotoDataUrl(dataUrl)
+        const file = dataUrlToFile(normalized, name)
+        await api.uploadMedia(code, file)
+        setStatus(`已上传 ${name}`)
+        await onUploaded?.()
+      } catch (e) {
+        setStatus(e instanceof Error ? e.message : String(e))
+      } finally {
+        setUploading(false)
+      }
+    },
+    [code, disabled, onUploaded],
   )
 
   const initStationQr = useCallback(async (sid: string) => {
@@ -160,23 +186,29 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
   }, [disabled, useRelayMode, initStationQr])
 
   useEffect(() => {
-    if (!useRelayMode || !sessionId || !code || disabled) return
-    if (prevCodeRef.current === code) return
+    if (!useRelayMode || !sessionId || !code || disabled) {
+      setRelayCertReady(false)
+      return
+    }
 
     let cancelled = false
+    setRelayCertReady(false)
     ;(async () => {
       try {
         const r = await api.syncPhotoRelayCert(sessionId, code)
         if (cancelled) return
-        if (r.data.changed || prevCodeRef.current) {
+        if (r.data.changed) {
           pendingRef.current = []
           setThumbs([])
           lastPhotoSeqRef.current = 0
           if (prevCodeRef.current) {
             setStatus(`已切换至 ${code}，请重新拍摄`)
           }
+        } else {
+          lastPhotoSeqRef.current = r.data.photoSeq ?? lastPhotoSeqRef.current
         }
         prevCodeRef.current = code
+        setRelayCertReady(true)
       } catch (e) {
         if (!cancelled) setStatus(e instanceof Error ? e.message : String(e))
       }
@@ -187,7 +219,7 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
   }, [code, sessionId, disabled, useRelayMode])
 
   useEffect(() => {
-    if (!useRelayMode || !sessionId || disabled) return
+    if (!useRelayMode || !sessionId || disabled || !relayCertReady) return
     let cancelled = false
     const poll = async () => {
       try {
@@ -201,8 +233,15 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
         if (r.data.photos.length) {
           for (const photo of r.data.photos) {
             lastPhotoSeqRef.current = photo.seq
-            await addPendingPhoto(photo.dataUrl, `${code}-photo-${photo.seq}.jpg`)
+            const name = `${code}-photo-${photo.seq}.jpg`
+            if (deferUpload) {
+              await addPendingPhoto(photo.dataUrl, name)
+            } else {
+              await uploadRelayPhoto(photo.dataUrl, name)
+            }
           }
+        } else if (r.data.photoSeq != null) {
+          lastPhotoSeqRef.current = Math.max(lastPhotoSeqRef.current, r.data.photoSeq)
         }
       } catch {
         /* 忽略单次轮询失败 */
@@ -214,7 +253,7 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [sessionId, disabled, useRelayMode, code, addPendingPhoto])
+  }, [sessionId, disabled, useRelayMode, code, deferUpload, relayCertReady, addPendingPhoto, uploadRelayPhoto])
 
   useEffect(() => {
     if (useRelayMode || !code || disabled) return
