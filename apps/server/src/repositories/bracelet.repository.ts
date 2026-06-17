@@ -24,10 +24,10 @@ export const braceletRepo = {
     })
   },
 
-  /** 扫码枪：编号或条形码，兼容大小写、空白、回车与前导零 */
-  findByScanCode(raw: string) {
+  /** 扫码匹配条件：编号或条形码，兼容大小写、空白、回车与前导零 */
+  scanCodeWhere(raw: string) {
     const code = raw.replace(/[\r\n\0]+/g, '').trim()
-    if (!code) return Promise.resolve(null)
+    if (!code) return null
     const compact = code.replace(/\s+/g, '')
     const certVariants = [
       ...new Set([code, compact, code.toUpperCase(), compact.toUpperCase()].filter(Boolean)),
@@ -45,13 +45,35 @@ export const braceletRepo = {
       }
     }
 
+    return {
+      OR: [
+        ...certVariants.map((v) => ({ certNo: v })),
+        ...[...barcodeVariants].map((v) => ({ barcodeValue: v })),
+      ],
+    }
+  },
+
+  /** 扫码枪：编号或条形码，兼容大小写、空白、回车与前导零 */
+  findByScanCode(raw: string) {
+    const where = this.scanCodeWhere(raw)
+    if (!where) return Promise.resolve(null)
     return prisma.bracelet.findFirst({
-      where: {
-        OR: [
-          ...certVariants.map((v) => ({ certNo: v })),
-          ...[...barcodeVariants].map((v) => ({ barcodeValue: v })),
-        ],
+      where,
+      include: {
+        detail: true,
+        mediaAssets: { orderBy: { createdAt: 'desc' } },
       },
+    })
+  },
+
+  /** 扫码枪：返回所有匹配记录（条形码重复、编号片段等） */
+  findAllByScanCode(raw: string, take = 50) {
+    const where = this.scanCodeWhere(raw)
+    if (!where) return Promise.resolve([])
+    return prisma.bracelet.findMany({
+      where,
+      take,
+      orderBy: [{ certNo: 'asc' }, { updatedAt: 'desc' }],
       include: {
         detail: true,
         mediaAssets: { orderBy: { createdAt: 'desc' } },

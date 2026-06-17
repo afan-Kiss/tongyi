@@ -25,16 +25,11 @@ export const LabelPrintPreview: React.FC<Props> = ({ labelMemory }) => {
         {lines.map(({ line, text }) => {
           const css = lineFontCss(line)
           const left = line.textAlign === 'left'
-          const extraBold = line.bold && (line.id === 'warning' || line.id === 'title')
           return (
             <div
               key={line.id}
               className={`leading-snug text-slate-900 ${left ? 'text-left pl-2' : 'text-center'}`}
-              style={{
-                ...css,
-                fontWeight: extraBold ? 900 : css.fontWeight,
-                WebkitTextStroke: extraBold ? '0.3px black' : undefined,
-              }}
+              style={css}
             >
               {text}
             </div>
@@ -47,11 +42,7 @@ export const LabelPrintPreview: React.FC<Props> = ({ labelMemory }) => {
             </div>
             <p
               className="mt-1 text-[10px] tracking-wider text-slate-600"
-              style={{
-                ...lineFontCss(barcodeLine!),
-                fontWeight: 900,
-                WebkitTextStroke: '0.3px black',
-              }}
+              style={lineFontCss(barcodeLine!)}
             >
               {barcodeContent}
             </p>

@@ -49,8 +49,8 @@ export function parseRingInteger(raw: string | null | undefined): number | null 
 }
 
 /**
- * 条形码：前两位批次 + (成本×3+10+圈口整数)
- * 例：批次02、成本1000、圈口57 → 02301057
+ * 条形码：03 + (成本×3+10) + 圈口整数（拼接，非相加）
+ * 例：成本1000、圈口57 → 03301057
  */
 export function computeBarcodeDigits(
   batch: string | null | undefined,
@@ -60,9 +60,8 @@ export function computeBarcodeDigits(
   const costN = parseNumber(cost)
   const ringN = parseRingInteger(ringSize)
   if (costN === null || ringN === null) return null
-  const prefix = parseBatchPrefix(batch)
-  const middle = Math.round(costN * 3 + 10 + ringN)
-  return `${prefix}${middle}`
+  const middle = Math.round(costN * 3 + 10)
+  return `03${middle}${ringN}`
 }
 
 export type LabelFormSync = {
@@ -70,6 +69,37 @@ export type LabelFormSync = {
   ringSize?: string | null
   cost?: string | null
   batch?: string | null
+}
+
+/** 从库存记录填充吊牌各行（查询/抽屉重打，不用 localStorage 里上一件的条形码） */
+export function fillLabelLinesFromBracelet(
+  memory: LabelPrintMemory,
+  bracelet: {
+    certNo?: string | null
+    ringSize?: string | null
+    cost?: string | null
+    batch?: string | null
+    barcodeValue?: string | null
+    category?: string | null
+  },
+): LabelPrintMemory {
+  const lineFormats = { ...memory.lineFormats }
+  const certNo = bracelet.certNo?.trim().toUpperCase()
+  if (certNo) lineFormats.cert = `编号:${certNo}`
+  const ring = formatRingSizeForLabel(bracelet.ringSize)
+  if (ring) lineFormats.ring = `圈口:${ring}`
+  const cost = bracelet.cost?.trim()
+  if (cost) lineFormats.price = formatPriceForLabel(cost)
+  const category = bracelet.category?.trim()
+  if (category) lineFormats.title = category
+
+  const barcode =
+    bracelet.barcodeValue?.trim() ||
+    computeBarcodeDigits(bracelet.batch, bracelet.cost, bracelet.ringSize) ||
+    ''
+  if (barcode) lineFormats.barcode = barcode
+
+  return { ...memory, lineFormats }
 }
 
 /** 用表单填充吊牌各行（编号/圈口/售价/条形码） */

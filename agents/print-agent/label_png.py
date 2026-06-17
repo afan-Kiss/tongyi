@@ -426,7 +426,7 @@ def render_jewelry_tag_png(
         if not barcode_data:
             return y_pos
         size = max(int(line.get("size") or 12), 10)
-        bold = bool(line.get("bold", True))
+        bold = bool(line.get("bold", False))
         font_family = str(line.get("fontFamily") or "simhei")
         side_margin = BARCODE_SIDE_MARGIN
         max_w = max(40, canvas_w - side_margin * 2)
@@ -459,7 +459,7 @@ def render_jewelry_tag_png(
 
     def _render_text(line: dict[str, Any], y_pos: int) -> int:
         size = max(int(line.get("size") or 14), 10)
-        bold = bool(line.get("bold", True))
+        bold = bool(line.get("bold", False))
         font_family = str(line.get("fontFamily") or "simhei")
         text = str(line.get("format") or "").strip()
         if not text:

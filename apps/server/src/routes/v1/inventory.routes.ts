@@ -1,6 +1,12 @@
 import { Router } from 'express'
 import { deleteBraceletByCert } from '../../services/inventory-command.service'
-import { findBraceletInDb, queryByCertNo, queryDashboard, queryList } from '../../services/inventory-query.service'
+import {
+  findBraceletInDb,
+  queryByCertNo,
+  queryByScanCode,
+  queryDashboard,
+  queryList,
+} from '../../services/inventory-query.service'
 import { updateBraceletByCert } from '../../services/bracelet-update.service'
 import { sendErr, sendOk } from '../../utils/api-response'
 
@@ -26,6 +32,17 @@ inventoryRouter.get('/by-cert/:certNo', async (req, res) => {
     : await queryByCertNo(req.params.certNo)
   if (!bracelet) return sendErr(res, `未找到编号或条形码 ${req.params.certNo}`, 404)
   sendOk(res, bracelet)
+})
+
+inventoryRouter.get('/by-scan/:code', async (req, res) => {
+  const dbOnly = req.query.dbOnly === '1' || req.query.dbOnly === 'true'
+  const includeList = req.query.includeList === '1' || req.query.includeList === 'true'
+  const items = await queryByScanCode(req.params.code, {
+    syncExcel: !dbOnly,
+    includeList,
+  })
+  if (!items.length) return sendErr(res, `未找到编号或条形码 ${req.params.code}`, 404)
+  sendOk(res, { items })
 })
 
 inventoryRouter.patch('/by-cert/:certNo', async (req, res) => {

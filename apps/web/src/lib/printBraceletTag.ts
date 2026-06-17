@@ -1,5 +1,6 @@
 import type { Bracelet } from '@/api/types'
 import { buildPrintTemplate } from '@/lib/buildPrintTemplate'
+import { fillLabelLinesFromBracelet } from '@/lib/labelPrintSync'
 import type { LabelPrintMemory } from '@/lib/labelPrintMemory'
 import { loadLabelPrintMemory, getBarcodeDigits } from '@/lib/labelPrintMemory'
 import { api } from '@/lib/api'
@@ -8,7 +9,9 @@ export async function printBraceletTag(
   bracelet: Bracelet,
   options?: { labelMemory?: LabelPrintMemory },
 ): Promise<string> {
-  const mem = options?.labelMemory ?? loadLabelPrintMemory()
+  const mem = options?.labelMemory
+    ? options.labelMemory
+    : fillLabelLinesFromBracelet(loadLabelPrintMemory(), bracelet)
   const settingsRes = await api.getSettings()
   const r = (await api.printBraceletTag({
     bracelet: {

@@ -12,6 +12,8 @@ import { ScanNotFoundDialog } from '@/components/ScanNotFoundDialog'
 
 import { inventoryApi } from '@/api/endpoints'
 
+import { isPhotoAsset, mediaThumbUrl } from '@/lib/mediaAsset'
+
 import { emitInventoryRefresh } from '@/lib/inventoryRefresh'
 
 import { useScanWorkbench } from '@/hooks/useScanWorkbench'
@@ -41,6 +43,8 @@ export const ScanPage: React.FC = () => {
   const [buffer, setBuffer] = useState('')
   const [status, setStatus] = useState('')
   const [bracelet, setBracelet] = useState<Bracelet | null>(null)
+  const [scanMatches, setScanMatches] = useState<Bracelet[]>([])
+  const [lastScanned, setLastScanned] = useState('')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [notFoundScanned, setNotFoundScanned] = useState<string | null>(null)
   const [pendingOutbound, setPendingOutbound] = useState<Bracelet | null>(null)
@@ -64,50 +68,77 @@ export const ScanPage: React.FC = () => {
     setTimeout(() => inputRef.current?.focus(), 50)
   }, [])
 
-  const openFound = useCallback((scanned: string, b: Bracelet) => {
+  const openFound = useCallback((scanned: string, b: Bracelet, matches?: Bracelet[]) => {
     setBracelet(b)
+    setScanMatches(matches && matches.length > 1 ? matches : [])
     setLastCertNo(b.certNo)
     setNotFoundScanned(null)
     setDrawerOpen(true)
 
     const label = scanStatusLabel(scanned, b)
+    const multiHint = matches && matches.length > 1
+      ? ` · 共 ${matches.length} 条${matches.every((m) => m.certNo === b.certNo) ? '（编号相同）' : ''}`
+      : ''
     if (mode === 'outbound') {
       if (b.qty === 0) {
-        setStatus(`${label} · 已出库，无法再次出库`)
+        setStatus(`${label}${multiHint} · 已出库，无法再次出库`)
         setPendingOutbound(null)
       } else {
-        setStatus(label)
+        setStatus(`${label}${multiHint}`)
         setPendingOutbound(b)
       }
       return
     }
     if (mode === 'inbound') {
       if (b.qty === 1) {
-        setStatus(`${label} · 已在库，无需退货入库`)
+        setStatus(`${label}${multiHint} · 已在库，无需退货入库`)
       } else {
-        setStatus(`${label} · 已售出，可确认退货入库`)
+        setStatus(`${label}${multiHint} · 已售出，可确认退货入库`)
       }
       setPendingOutbound(null)
       return
     }
-    setStatus(label)
+    setStatus(`${label}${multiHint}`)
     setPendingOutbound(null)
   }, [mode, setLastCertNo])
+
+  const pickMatch = useCallback((b: Bracelet) => {
+    openFound(lastScanned, b, scanMatches.length > 1 ? scanMatches : undefined)
+  }, [openFound, lastScanned, scanMatches])
 
   const handleScan = async (raw: string) => {
     const scanned = normalizeScanInput(raw)
     if (!scanned) return
 
     setStatus(`识别：${scanned}`)
+    setLastScanned(scanned)
     setNotFoundScanned(null)
+    setScanMatches([])
     clearExcelSync()
 
     try {
-      const r = await inventoryApi.getByCert(scanned)
-      openFound(scanned, r.data)
+      const r = await inventoryApi.scanLookup(scanned, {
+        includeList: mode === 'query',
+      })
+      const items = r.data.items
+      if (items.length === 1) {
+        openFound(scanned, items[0])
+      } else {
+        setScanMatches(items)
+        setBracelet(null)
+        setDrawerOpen(false)
+        setPendingOutbound(null)
+        const sameCert = items.every((m) => m.certNo === items[0].certNo)
+        setStatus(
+          sameCert
+            ? `编号 ${items[0].certNo} 共 ${items.length} 条，请选择查看`
+            : `匹配到 ${items.length} 条，请选择`,
+        )
+      }
       refocus()
     } catch {
       setBracelet(null)
+      setScanMatches([])
       setDrawerOpen(false)
       setPendingOutbound(null)
       setNotFoundScanned(scanned)
@@ -168,7 +199,7 @@ export const ScanPage: React.FC = () => {
           { key: 'query', label: '查询' },
         ]}
         activeKey={mode}
-        onChange={(k) => { setMode(k as ScanMode); refocus() }}
+        onChange={(k) => { setMode(k as ScanMode); setScanMatches([]); refocus() }}
       />
       <div className="rounded-2xl border border-white/70 bg-white/80 p-6 text-center shadow-sm">
         <p className="text-sm text-slate-500">扫描吊牌条形码或编号，均可识别</p>
@@ -183,6 +214,47 @@ export const ScanPage: React.FC = () => {
           autoComplete="off"
         />
         {status && <p className="mt-3 text-sm text-slate-600">{status}</p>}
+        {scanMatches.length > 1 && (
+          <div className="mt-4 space-y-2 text-left">
+            <p className="text-xs font-medium text-slate-500">
+              {scanMatches.every((m) => m.certNo === scanMatches[0].certNo)
+                ? `编号 ${scanMatches[0].certNo} · ${scanMatches.length} 条`
+                : `匹配 ${scanMatches.length} 条 · 点击选择`}
+            </p>
+            {scanMatches.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => pickMatch(item)}
+                className="flex w-full items-center gap-3 rounded-xl border border-rose-100 bg-white px-3 py-2 text-left shadow-sm hover:bg-rose-50/40"
+              >
+                {item.mediaAssets?.filter(isPhotoAsset)[0] ? (
+                  <img
+                    src={mediaThumbUrl(item.mediaAssets.filter(isPhotoAsset)[0])}
+                    alt=""
+                    className="h-12 w-12 shrink-0 rounded-lg border border-rose-100 object-cover"
+                  />
+                ) : (
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-dashed border-rose-100 bg-rose-50/50 text-[10px] text-rose-400">
+                    无图
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold text-slate-900">{item.certNo}</p>
+                  <p className="truncate text-xs text-slate-500">
+                    {item.barcodeValue && item.barcodeValue !== item.certNo
+                      ? `条形码 ${item.barcodeValue} · `
+                      : ''}
+                    {item.batch || '—'} · 圈口 {item.ringSize || '—'}
+                  </p>
+                </div>
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${item.qty === 1 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                  {item.qty === 1 ? '在库' : '已出'}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
         {mode === 'inbound' && (
           <p className="mt-3 text-xs text-slate-500">
             扫已售出编号的吊牌，恢复在库。

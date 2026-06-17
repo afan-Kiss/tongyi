@@ -26,6 +26,15 @@ export const inventoryApi = {
     const q = opts?.dbOnly ? '?dbOnly=1' : ''
     return request<{ data: Bracelet }>(`/inventory/by-cert/${encodeURIComponent(certNo)}${q}`)
   },
+  scanLookup: (code: string, opts?: { dbOnly?: boolean; includeList?: boolean }) => {
+    const q = new URLSearchParams()
+    if (opts?.dbOnly) q.set('dbOnly', '1')
+    if (opts?.includeList) q.set('includeList', '1')
+    const qs = q.toString()
+    return request<{ data: { items: Bracelet[] } }>(
+      `/inventory/by-scan/${encodeURIComponent(code)}${qs ? `?${qs}` : ''}`,
+    )
+  },
   updateByCert: (certNo: string, body: Record<string, unknown>) =>
     request<{ data: { bracelet: Bracelet; excelSync: ExcelSyncResult; partialSuccess?: boolean } }>(
       `/inventory/by-cert/${encodeURIComponent(certNo)}`,
