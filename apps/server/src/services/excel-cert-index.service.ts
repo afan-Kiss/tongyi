@@ -3,6 +3,7 @@ import {
   fetchCertIndexFromBridge,
 } from '../adapters/excel/excel-live.adapter'
 import { isExcelBridgeEnabled } from '../config/env'
+import { certMatchesSearchQuery } from '../domain/cert-no.rules'
 
 export type { CertIndexEntry }
 
@@ -46,7 +47,7 @@ export function searchCertIndex(query: string, limit = 20): CertIndexEntry[] {
   const containsHits: CertIndexEntry[] = []
 
   for (const item of entries) {
-    if (item.certNo.startsWith(q)) {
+    if (certMatchesSearchQuery(item.certNo, q)) {
       prefixHits.push(item)
       if (prefixHits.length >= cap) return prefixHits
     } else if (item.certNo.includes(q) && prefixHits.length + containsHits.length < cap) {
@@ -56,6 +57,12 @@ export function searchCertIndex(query: string, limit = 20): CertIndexEntry[] {
   }
 
   return [...prefixHits, ...containsHits].slice(0, cap)
+}
+
+export function findCertIndexEntry(certNo: string): CertIndexEntry | undefined {
+  const code = certNo.trim().toUpperCase()
+  if (!code || !ready) return undefined
+  return entries.find((e) => e.certNo === code)
 }
 
 export async function refreshCertIndex(force = false): Promise<CertIndexStatus> {

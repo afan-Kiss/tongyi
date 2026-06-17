@@ -5,11 +5,16 @@ import datetime
 import logging
 import os
 import re
-from typing import Any, Optional
+import threading
+from typing import Any, Callable, Optional, TypeVar
 
 from flask import Flask, jsonify, request
 
 from screenshot import capture_row_snapshot, read_row_verify, restore_excel_view
+
+T = TypeVar("T")
+
+_com_lock = threading.RLock()
 
 logging.basicConfig(
     level=logging.INFO,
@@ -104,14 +109,45 @@ def _cell_str(v: Any) -> str:
     return str(v).strip()
 
 
-def _get_connector():
+def _cert_matches_search_query(cert_no: str, query: str) -> bool:
+    q = _cell_str(query).upper()
+    cert = _cell_str(cert_no).upper()
+    if not q or not cert.startswith(q):
+        return False
+    for prefix in CERT_PREFIXES:
+        if len(prefix) <= len(q):
+            continue
+        if not prefix.startswith(q):
+            continue
+        if cert.startswith(prefix):
+            return False
+    return True
+
+
+def _with_com(fn: Callable[[], T]) -> T:
+    import pythoncom
+
+    pythoncom.CoInitialize()
+    try:
+        with _com_lock:
+            try:
+                return fn()
+            except Exception as e:
+                err = str(e)
+                if "-2147417842" in err or "已为另一线程整理" in err:
+                    _reset_connector()
+                    return fn()
+                raise
+    finally:
+        pythoncom.CoUninitialize()
+
+
+def _get_connector_unlocked():
     global _connector
     if _connector is not None:
         return _connector
-    import pythoncom
     import win32com.client  # type: ignore
 
-    pythoncom.CoInitialize()
     app_excel = win32com.client.GetActiveObject("Excel.Application")
     _connector = app_excel
     return _connector
@@ -122,11 +158,37 @@ def _reset_connector():
     _connector = None
 
 
-def _get_ws(sheet_name: Optional[str] = None):
-    app_excel = _get_connector()
+def _get_ws_unlocked(sheet_name: Optional[str] = None):
+    app_excel = _get_connector_unlocked()
     if sheet_name:
         return app_excel.Workbooks(app_excel.ActiveWorkbook.Name).Worksheets(sheet_name)
     return app_excel.ActiveWorkbook.ActiveSheet
+
+
+def _with_com(fn: Callable[[], T]) -> T:
+    import pythoncom
+
+    pythoncom.CoInitialize()
+    try:
+        with _com_lock:
+            try:
+                return fn()
+            except Exception as e:
+                err = str(e)
+                if "-2147417842" in err or "已为另一线程整理" in err:
+                    _reset_connector()
+                    return fn()
+                raise
+    finally:
+        pythoncom.CoUninitialize()
+
+
+def _get_ws(sheet_name: Optional[str] = None):
+    return _with_com(lambda: _get_ws_unlocked(sheet_name))
+
+
+def _get_connector():
+    return _with_com(_get_connector_unlocked)
 
 
 def _parse_qty(v: Any) -> int:
@@ -256,7 +318,7 @@ def _search_cert_index(query: str, limit: int = 20) -> list[dict[str, Any]]:
     contains_hits: list[dict[str, Any]] = []
     for item in _cert_index_entries:
         cert = str(item.get("certNo") or "")
-        if cert.startswith(q):
+        if _cert_matches_search_query(cert, q):
             prefix_hits.append(item)
             if len(prefix_hits) >= limit:
                 return prefix_hits
@@ -267,20 +329,28 @@ def _search_cert_index(query: str, limit: int = 20) -> list[dict[str, Any]]:
     return (prefix_hits + contains_hits)[:limit]
 
 
-def _find_row_by_cert(
+def _find_row_by_cert_unlocked(
     cert_no: str,
     sheet_name: Optional[str] = None,
     excel_row: Optional[int] = None,
 ) -> Optional[int]:
     if excel_row and excel_row >= DATA_START_ROW:
         return excel_row
-    ws = _get_ws(sheet_name)
+    ws = _get_ws_unlocked(sheet_name)
     target = cert_no.strip().upper()
     last_row = int(ws.Cells(ws.Rows.Count, COL_CERT_NO).End(-4162).Row)
     for r in range(DATA_START_ROW, last_row + 1):
         if _cell_str(ws.Cells(r, COL_CERT_NO).Value).upper() == target:
             return r
     return None
+
+
+def _find_row_by_cert(
+    cert_no: str,
+    sheet_name: Optional[str] = None,
+    excel_row: Optional[int] = None,
+) -> Optional[int]:
+    return _with_com(lambda: _find_row_by_cert_unlocked(cert_no, sheet_name, excel_row))
 
 
 def _sync_response(
@@ -580,13 +650,22 @@ def next_cert_no():
 def row_by_cert(cert_no: str):
     """按编号读取 Excel 行数据（供数据库补同步）。"""
     sheet_name = request.args.get("sheet") or _bound_sheet or None
-    try:
-        row = _find_row_by_cert(cert_no, sheet_name, request.args.get("row", type=int))
+    excel_row = request.args.get("row", type=int)
+
+    def _read():
+        row = _find_row_by_cert_unlocked(cert_no, sheet_name, excel_row)
         if not row:
-            return jsonify({"ok": False, "message": f"Excel 中未找到 {cert_no.upper()}"}), 404
-        ws = _get_ws(sheet_name)
+            return None
+        ws = _get_ws_unlocked(sheet_name)
         data = _read_row_bracelet(ws, row, str(ws.Name))
-        return jsonify({"ok": True, "message": f"已读取 row={row}", "row": row, "sheet": str(ws.Name), "data": data})
+        return row, str(ws.Name), data
+
+    try:
+        result = _with_com(_read)
+        if not result:
+            return jsonify({"ok": False, "message": f"Excel 中未找到 {cert_no.upper()}"}), 404
+        row, sheet, data = result
+        return jsonify({"ok": True, "message": f"已读取 row={row}", "row": row, "sheet": sheet, "data": data})
     except Exception as e:
         _reset_connector()
         return jsonify({"ok": False, "message": str(e)}), 400

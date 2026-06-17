@@ -1,12 +1,15 @@
 import type { Bracelet } from '@/api/types'
-import { BUILTIN_LABEL_TEMPLATE } from '@/lib/labelTemplateStorage'
+import { buildPrintTemplate } from '@/lib/buildPrintTemplate'
 import { api } from '@/lib/api'
 
-export async function printBraceletTag(bracelet: Bracelet): Promise<string> {
+export async function printBraceletTag(
+  bracelet: Bracelet,
+  options?: { barcodeCaption?: string },
+): Promise<string> {
   const settingsRes = await api.getSettings()
   const r = (await api.printBraceletTag({
     bracelet,
-    template: BUILTIN_LABEL_TEMPLATE,
+    template: buildPrintTemplate(options?.barcodeCaption),
     side: 'both',
     printerName: settingsRes.data.printerName || undefined,
   })) as { ok?: boolean; message?: string }

@@ -123,3 +123,50 @@ export const printApi = {
 export const healthApi = {
   check: () => request<{ ok: boolean }>('/health'),
 }
+
+export const photoRelayApi = {
+  station: (stationId?: string) =>
+    request<{ data: { sessionId: string; certNo: string; created: boolean } }>('/photo-relay/station', {
+      method: 'POST',
+      body: JSON.stringify({ stationId: stationId || undefined }),
+    }),
+  syncCert: (sessionId: string, certNo: string) =>
+    request<{ data: { certNo: string; changed: boolean } }>(
+      `/photo-relay/${encodeURIComponent(sessionId)}/cert`,
+      { method: 'PATCH', body: JSON.stringify({ certNo }) },
+    ),
+  create: (certNo: string) =>
+    request<{ data: { sessionId: string; certNo: string } }>('/photo-relay', {
+      method: 'POST',
+      body: JSON.stringify({ certNo }),
+    }),
+  poll: (sessionId: string, lastPhotoSeq = 0) =>
+    request<{
+      data: {
+        certNo: string
+        frame: string | null
+        frameAt: number
+        phoneOnline: boolean
+        photos: { seq: number; dataUrl: string; at: number }[]
+      }
+    }>(`/photo-relay/${encodeURIComponent(sessionId)}/poll?lastPhotoSeq=${lastPhotoSeq}`),
+  heartbeat: (sessionId: string, role: 'phone' | 'pc') =>
+    request<{ data: { certNo: string; phoneOnline: boolean } }>(
+      `/photo-relay/${encodeURIComponent(sessionId)}/heartbeat`,
+      { method: 'POST', body: JSON.stringify({ role }) },
+    ),
+  pushFrame: (sessionId: string, frame: string) =>
+    request(`/photo-relay/${encodeURIComponent(sessionId)}/frame`, {
+      method: 'POST',
+      body: JSON.stringify({ frame }),
+    }),
+  shoot: (sessionId: string, photo: string) =>
+    request<{ data: { seq: number } }>(`/photo-relay/${encodeURIComponent(sessionId)}/shoot`, {
+      method: 'POST',
+      body: JSON.stringify({ photo }),
+    }),
+  get: (sessionId: string) =>
+    request<{ data: { sessionId: string; certNo: string; phoneOnline: boolean } }>(
+      `/photo-relay/${encodeURIComponent(sessionId)}`,
+    ),
+}

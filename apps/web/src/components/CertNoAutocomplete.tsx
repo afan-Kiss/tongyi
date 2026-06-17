@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useId, useRef, useState } from 'react'
 
 import { excelApi } from '@/api/endpoints'
 import type { CertIndexEntry } from '@/api/types'
+import { certMatchesSearchQuery } from '@/lib/certSearch'
 
 type Props = {
   value: string
@@ -41,7 +42,7 @@ export const CertNoAutocomplete: React.FC<Props> = ({
     setLoading(true)
     try {
       const r = await excelApi.searchCertIndex(query, 15)
-      const hits = r.data.items
+      const hits = r.data.items.filter((item) => certMatchesSearchQuery(item.certNo, query))
       setItems(hits)
       setOpen(hits.length > 0)
       setActiveIdx(hits.length > 0 ? 0 : -1)

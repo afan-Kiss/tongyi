@@ -1,0 +1,5 @@
+const { PrismaClient } = require('@prisma/client')
+const p = new PrismaClient()
+p.$queryRawUnsafe('SELECT id, migration_name, started_at, finished_at, rolled_back_at, applied_steps_count FROM _prisma_migrations')
+  .then((r) => { console.log(JSON.stringify(r, null, 2)) })
+  .finally(() => p.$disconnect())

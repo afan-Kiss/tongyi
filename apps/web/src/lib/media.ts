@@ -38,6 +38,18 @@ async function loadImage(src: string): Promise<HTMLImageElement> {
   })
 }
 
+export function captureVideoFrame(video: HTMLVideoElement, maxSide = 1280, quality = 0.82): string | null {
+  if (!video.videoWidth) return null
+  const scale = Math.min(1, maxSide / Math.max(video.videoWidth, video.height))
+  const w = Math.max(1, Math.round(video.videoWidth * scale))
+  const h = Math.max(1, Math.round(video.videoHeight * scale))
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  canvas.getContext('2d')!.drawImage(video, 0, 0, w, h)
+  return canvas.toDataURL('image/jpeg', quality)
+}
+
 export async function normalizePhotoDataUrl(dataUrl: string, maxSide = 1280): Promise<string> {
   const img = await loadImage(dataUrl)
   const scale = Math.min(1, maxSide / Math.max(img.width, img.height))

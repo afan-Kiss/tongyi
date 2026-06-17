@@ -6,6 +6,7 @@ import { DashboardPage } from '@/pages/Dashboard'
 import { ScanPage } from '@/pages/ScanPage'
 import { InventoryPage } from '@/pages/Inventory'
 import { InboundFormPage } from '@/pages/InboundForm'
+import { MobileCameraPage } from '@/pages/MobileCameraPage'
 import { SettingsPage } from '@/pages/Settings'
 import { XiangyuPage } from '@/pages/XiangyuPage'
 
@@ -23,11 +24,12 @@ export const App: React.FC = () => (
           <Route path="settings" element={<SettingsPage />} />
         </Route>
         <Route path="/xiangyu" element={<XiangyuPage />} />
+        <Route path="/inventory/mobile-camera" element={<MobileCameraPage />} />
 
         <Route path="/" element={<LegacyRedirect to="/inventory" />} />
         <Route path="/scan" element={<LegacyRedirect to="/inventory/scan" />} />
         <Route path="/inbound" element={<LegacyRedirect to="/inventory/inbound?type=register" />} />
-        <Route path="/mobile/capture" element={<LegacyRedirect to="/inventory/inbound" />} />
+        <Route path="/mobile/capture" element={<LegacyRedirect to="/inventory/mobile-camera" />} />
         <Route path="/settings" element={<LegacyRedirect to="/inventory/settings" />} />
         <Route path="/inventory/inventory" element={<LegacyRedirect to="/inventory/stock" />} />
       </Route>

@@ -5,6 +5,7 @@ import { mediaV1Router } from './media.routes'
 import { excelV1Router } from './excel.routes'
 import { settingsV1Router } from './settings.routes'
 import { detailRouter } from './detail.routes'
+import { photoRelayRouter } from './photo-relay.routes'
 import { sendErr } from '../../utils/api-response'
 
 export const v1Router = Router()
@@ -20,6 +21,7 @@ v1Router.use('/excel', excelV1Router)
 v1Router.use('/settings', settingsV1Router)
 
 v1Router.use('/detail', detailRouter)
+v1Router.use('/photo-relay', photoRelayRouter)
 
 v1Router.post('/print/bracelet-tag', async (req, res) => {
   const { getPrintAgentUrl } = await import('../../config/env')

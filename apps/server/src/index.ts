@@ -19,6 +19,7 @@ const port = getPort()
 
 async function main() {
   await prisma.$connect()
+
   await ensureDefaultLabelTemplate()
 
   const settings = await prisma.appSettings.findUnique({ where: { id: 'singleton' } })

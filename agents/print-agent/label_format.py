@@ -29,7 +29,7 @@ DEFAULT_LABEL_LINES: list[dict[str, Any]] = [
         "fontFamily": "msyh",
         "bold": True,
         "yPx": 28,
-        "xPx": 4,
+        "xPx": 11,
         "barcodeHeight": 62,
         "captionGapPx": 1,
     },

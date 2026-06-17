@@ -13,7 +13,7 @@ interface Props {
   open: boolean
   onClose: () => void
   showLabelPrint?: boolean
-  onDeleted?: () => void
+  onDeleted?: (certNo: string) => void
   onUpdated?: (b: Bracelet) => void
 }
 
@@ -103,8 +103,9 @@ export const BraceletDrawer: React.FC<Props> = ({
     setDeleting(true)
     setDeleteMsg('')
     try {
-      await api.deleteBracelet(current.certNo)
-      onDeleted?.()
+      const deletedCert = current.certNo
+      await api.deleteBracelet(deletedCert)
+      onDeleted?.(deletedCert)
       onClose()
     } catch (e) {
       setDeleteMsg(e instanceof Error ? e.message : String(e))

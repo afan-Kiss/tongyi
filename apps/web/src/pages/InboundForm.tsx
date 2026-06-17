@@ -107,6 +107,7 @@ export const InboundFormPage: React.FC = () => {
   })
 
   const [detail, setDetail] = useState<Partial<BraceletDetail>>(newMem.detail)
+  const [barcodeCaption, setBarcodeCaption] = useState(newMem.barcodeCaption || '{certNo}')
 
   const [returnRemark, setReturnRemark] = useState(returnMem.remarkText)
 
@@ -217,9 +218,11 @@ export const InboundFormPage: React.FC = () => {
 
       detail,
 
+      barcodeCaption,
+
     })
 
-  }, [form.arrivalDate, form.batch, form.category, form.ringSize, form.cost, form.remark, detail])
+  }, [form.arrivalDate, form.batch, form.category, form.ringSize, form.cost, form.remark, detail, barcodeCaption])
 
 
 
@@ -316,7 +319,7 @@ export const InboundFormPage: React.FC = () => {
       const msg = data.excelSync?.message || '已登记到系统（未修改 Excel）'
       setStatus(photoWarn ? `${msg} · ${photoWarn}` : `${msg}，正在打印吊牌…`)
       try {
-        const printMsg = await printBraceletTag(data.bracelet)
+        const printMsg = await printBraceletTag(data.bracelet, { barcodeCaption })
         setStatus(photoWarn ? `${msg} · ${photoWarn} · ${printMsg}` : `${msg} · ${printMsg}`)
       } catch (e) {
         setStatus(photoWarn ? `${msg} · ${photoWarn} · 打印失败：${e instanceof Error ? e.message : String(e)}` : `${msg}，但打印失败：${e instanceof Error ? e.message : String(e)}`)
@@ -492,13 +495,27 @@ export const InboundFormPage: React.FC = () => {
           </div>
 
           <div className="rounded-2xl border border-violet-100 bg-violet-50/20 p-4 shadow-sm">
-            <h3 className="mb-2 text-sm font-semibold text-slate-800">实时拍照</h3>
+            <h3 className="mb-1 text-sm font-semibold text-slate-800">实时拍照</h3>
+            <p className="mb-2 text-[11px] text-slate-500">电脑填标签，手机扫一次码即可；换编号不用重扫，画面实时同步</p>
             <InboundPhotoCapture
               ref={photoRef}
               certNo={form.certNo}
               deferUpload
               disabled={submitting}
             />
+          </div>
+
+          <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4 shadow-sm">
+            <label className="block text-sm">
+              <span className="text-slate-500">条形码下方文字</span>
+              <input
+                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 font-mono text-sm tracking-wide"
+                value={barcodeCaption}
+                onChange={(e) => setBarcodeCaption(e.target.value)}
+                placeholder="{certNo}"
+              />
+            </label>
+            <p className="mt-1 text-[11px] text-slate-400">支持 {'{certNo}'} 占位符，内容会自动记住</p>
           </div>
 
           <LabelPrintPreview
@@ -509,6 +526,7 @@ export const InboundFormPage: React.FC = () => {
               cost: form.cost,
               remark: form.remark,
             }}
+            barcodeCaptionText={barcodeCaption}
           />
 
           <button

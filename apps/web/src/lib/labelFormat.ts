@@ -142,7 +142,7 @@ export const DEFAULT_LABEL_LINES: LabelLine[] = [
     fontFamily: 'msyh',
     bold: true,
     yPx: 28,
-    xPx: 4,
+    xPx: 11,
     barcodeHeight: 62,
     captionGapPx: 1,
   },

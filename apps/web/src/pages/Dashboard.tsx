@@ -10,9 +10,11 @@ export const DashboardPage: React.FC = () => {
   const [drawer, setDrawer] = useState<{ open: boolean; certNo: string }>({ open: false, certNo: '' })
   const [bracelet, setBracelet] = useState<Awaited<ReturnType<typeof api.getByCert>>['data'] | null>(null)
 
-  useEffect(() => {
+  const loadStats = () => {
     api.stats().then((r) => setStats(r.data)).catch((e) => setError(e.message))
-  }, [])
+  }
+
+  useEffect(() => { loadStats() }, [])
 
   const openLog = async (certNo: string) => {
     const r = await api.getByCert(certNo)
@@ -67,7 +69,16 @@ export const DashboardPage: React.FC = () => {
         </div>
       </section>
 
-      <BraceletDrawer bracelet={bracelet} open={drawer.open} onClose={() => setDrawer({ open: false, certNo: '' })} />
+      <BraceletDrawer
+        bracelet={bracelet}
+        open={drawer.open}
+        onClose={() => setDrawer({ open: false, certNo: '' })}
+        onDeleted={() => {
+          setDrawer({ open: false, certNo: '' })
+          setBracelet(null)
+          loadStats()
+        }}
+      />
     </div>
   )
 }

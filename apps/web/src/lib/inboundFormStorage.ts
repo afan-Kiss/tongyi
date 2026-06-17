@@ -14,6 +14,8 @@ export interface NewInboundMemory {
   cost: string
   remark: string
   detail: Partial<BraceletDetail>
+  /** 条形码下方文字，支持 {certNo} 占位符 */
+  barcodeCaption: string
 }
 
 export interface ReturnInboundMemory {
@@ -32,6 +34,7 @@ export const DEFAULT_NEW_INBOUND: NewInboundMemory = {
   cost: '',
   remark: '',
   detail: { ...EMPTY_DETAIL },
+  barcodeCaption: '{certNo}',
 }
 
 export const DEFAULT_RETURN_INBOUND: ReturnInboundMemory = {
@@ -76,6 +79,7 @@ export function loadNewInboundMemory(): NewInboundMemory {
     ...DEFAULT_NEW_INBOUND,
     ...parsed,
     detail: { ...EMPTY_DETAIL, ...(parsed.detail || {}) },
+    barcodeCaption: parsed.barcodeCaption?.trim() || DEFAULT_NEW_INBOUND.barcodeCaption,
   }
 }
 

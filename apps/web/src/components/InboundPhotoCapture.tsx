@@ -1,9 +1,14 @@
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
-import { Camera, ImagePlus } from 'lucide-react'
+import QRCode from 'qrcode'
+import { Camera, ImagePlus, Smartphone } from 'lucide-react'
 import { api } from '@/lib/api'
+import { buildMobileCameraUrl } from '@/lib/photoRelayUrl'
+import { clearPhotoRelayStationId, loadPhotoRelayStationId, savePhotoRelayStationId } from '@/lib/photoRelayStation'
 import {
   canUseLiveCamera,
+  captureVideoFrame,
   dataUrlToFile,
+  isMobileDevice,
   liveCameraBlockedReason,
   normalizePhotoDataUrl,
 } from '@/lib/media'
@@ -27,13 +32,24 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
   { certNo, disabled, deferUpload = false, onUploaded },
   ref,
 ) {
+  const useRelayMode = !isMobileDevice()
+
   const [status, setStatus] = useState('')
   const [uploading, setUploading] = useState(false)
   const [thumbs, setThumbs] = useState<string[]>([])
   const [photoCameraActive, setPhotoCameraActive] = useState(false)
   const [flash, setFlash] = useState(false)
+
+  const [sessionId, setSessionId] = useState('')
+  const [relayFrame, setRelayFrame] = useState<string | null>(null)
+  const [phoneOnline, setPhoneOnline] = useState(false)
+  const [mobileUrl, setMobileUrl] = useState('')
+  const [qrDataUrl, setQrDataUrl] = useState('')
+
   const pendingRef = useRef<PendingPhoto[]>([])
   const prevCodeRef = useRef('')
+  const lastPhotoSeqRef = useRef(0)
+  const lastFrameAtRef = useRef(0)
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const albumRef = useRef<HTMLInputElement>(null)
@@ -84,8 +100,119 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
     }
   }, [setPhotoCameraUi, stopStream])
 
+  const addPendingPhoto = useCallback(
+    async (dataUrl: string, name: string, flashOn = true) => {
+      const normalized = await normalizePhotoDataUrl(dataUrl)
+      pendingRef.current.push({ dataUrl: normalized, name })
+      setThumbs((prev) => [...prev, normalized])
+      if (flashOn) {
+        setFlash(true)
+        window.setTimeout(() => setFlash(false), 180)
+      }
+      setStatus(`已拍摄 ${pendingRef.current.length} 张（登记后自动上传）`)
+    },
+    [],
+  )
+
+  const initStationQr = useCallback(async (sid: string) => {
+    const [settings, sysStatus] = await Promise.all([api.getSettings(), api.getStatus()])
+    const url = buildMobileCameraUrl(sid, settings.data, sysStatus.data)
+    setMobileUrl(url)
+    setQrDataUrl(await QRCode.toDataURL(url, { width: 180, margin: 1 }))
+  }, [])
+
+  const resetStation = useCallback(async () => {
+    clearPhotoRelayStationId()
+    setSessionId('')
+    setQrDataUrl('')
+    setPhoneOnline(false)
+    const relay = await api.getPhotoRelayStation()
+    savePhotoRelayStationId(relay.data.sessionId)
+    setSessionId(relay.data.sessionId)
+    await initStationQr(relay.data.sessionId)
+    setStatus('已生成新二维码，请用手机重新扫码')
+  }, [initStationQr])
+
   useEffect(() => {
-    if (!code || disabled) return
+    if (!useRelayMode || disabled) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const stored = loadPhotoRelayStationId()
+        const relay = await api.getPhotoRelayStation(stored || undefined)
+        if (cancelled) return
+        savePhotoRelayStationId(relay.data.sessionId)
+        setSessionId(relay.data.sessionId)
+        await initStationQr(relay.data.sessionId)
+        setStatus('首次用手机扫码连接，之后换编号无需再扫')
+      } catch (e) {
+        if (!cancelled) setStatus(e instanceof Error ? e.message : String(e))
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [disabled, useRelayMode, initStationQr])
+
+  useEffect(() => {
+    if (!useRelayMode || !sessionId || !code || disabled) return
+    if (prevCodeRef.current === code) return
+
+    let cancelled = false
+    ;(async () => {
+      try {
+        const r = await api.syncPhotoRelayCert(sessionId, code)
+        if (cancelled) return
+        if (r.data.changed || prevCodeRef.current) {
+          pendingRef.current = []
+          setThumbs([])
+          lastPhotoSeqRef.current = 0
+          if (prevCodeRef.current) {
+            setStatus(`已切换至 ${code}，请重新拍摄`)
+          }
+        }
+        prevCodeRef.current = code
+      } catch (e) {
+        if (!cancelled) setStatus(e instanceof Error ? e.message : String(e))
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [code, sessionId, disabled, useRelayMode])
+
+  useEffect(() => {
+    if (!useRelayMode || !sessionId || disabled) return
+    let cancelled = false
+    const poll = async () => {
+      try {
+        const r = await api.pollPhotoRelay(sessionId, lastPhotoSeqRef.current)
+        if (cancelled) return
+        if (r.data.frameAt > lastFrameAtRef.current && r.data.frame) {
+          lastFrameAtRef.current = r.data.frameAt
+          setRelayFrame(r.data.frame)
+        }
+        setPhoneOnline(r.data.phoneOnline)
+        if (r.data.photos.length) {
+          for (const photo of r.data.photos) {
+            lastPhotoSeqRef.current = photo.seq
+            await addPendingPhoto(photo.dataUrl, `${code}-photo-${photo.seq}.jpg`)
+          }
+        }
+      } catch {
+        /* 忽略单次轮询失败 */
+      }
+    }
+    void poll()
+    const timer = window.setInterval(poll, 300)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [sessionId, disabled, useRelayMode, code, addPendingPhoto])
+
+  useEffect(() => {
+    if (useRelayMode || !code || disabled) return
     if (prevCodeRef.current && prevCodeRef.current !== code && pendingRef.current.length > 0) {
       pendingRef.current = []
       setThumbs([])
@@ -94,7 +221,7 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
     prevCodeRef.current = code
     startPhotoCamera()
     return () => stopStream()
-  }, [code, disabled, startPhotoCamera, stopStream])
+  }, [code, disabled, startPhotoCamera, stopStream, useRelayMode])
 
   const flashCapture = () => {
     setFlash(true)
@@ -104,12 +231,8 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
 
   const captureFrameFromPreview = (): string | null => {
     const video = videoRef.current
-    if (!video?.videoWidth) return null
-    const canvas = document.createElement('canvas')
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
-    canvas.getContext('2d')!.drawImage(video, 0, 0)
-    return canvas.toDataURL('image/jpeg', 0.82)
+    if (!video) return null
+    return captureVideoFrame(video)
   }
 
   const uploadFile = async (file: File, targetCert?: string) => {
@@ -239,9 +362,123 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
     },
   }))
 
-  if (!code) {
+  if (!code && !useRelayMode) {
     return (
       <p className="text-[11px] text-slate-400">填写编号后可实时拍照（登记前可连拍，登记后自动上传）</p>
+    )
+  }
+
+  if (useRelayMode) {
+    return (
+      <div className="space-y-3">
+        <div className="flex gap-3">
+          <div className="relative aspect-[3/4] min-w-0 flex-1 overflow-hidden rounded-2xl bg-slate-900 shadow-sm">
+            {relayFrame ? (
+              <img src={relayFrame} alt="手机实时画面" className="h-full w-full object-cover" />
+            ) : (
+              <div className="flex h-full min-h-[240px] flex-col items-center justify-center bg-gradient-to-b from-slate-800 to-slate-900 px-4 text-center text-slate-300">
+                <Smartphone size={40} className="mb-3 opacity-80" />
+                <p className="max-w-[240px] text-sm leading-relaxed">
+                  {phoneOnline ? '等待手机画面…' : '请用手机扫描二维码（只需扫一次）'}
+                </p>
+              </div>
+            )}
+            <span
+              className={`absolute right-3 top-3 rounded-full px-2.5 py-1 text-[11px] font-medium text-white ${
+                phoneOnline ? 'bg-emerald-600/80' : 'bg-black/50'
+              }`}
+            >
+              {phoneOnline ? '手机已连接' : '等待手机'}
+            </span>
+            {code && (
+              <span className="absolute left-3 top-3 rounded-full bg-black/50 px-2.5 py-1 text-[11px] font-medium text-white">
+                {code}
+              </span>
+            )}
+            {flash && (
+              <div className="pointer-events-none absolute inset-0 z-10 animate-[flash_0.18s_ease-out] bg-white opacity-90" />
+            )}
+          </div>
+
+          <div className="flex w-[140px] shrink-0 flex-col items-center rounded-2xl border border-violet-100 bg-white p-3">
+            {phoneOnline ? (
+              <>
+                <p className="text-center text-[10px] font-medium text-emerald-700">手机已连接</p>
+                <p className="mt-2 text-center text-[10px] leading-relaxed text-slate-500">
+                  换编号自动同步，无需再扫码
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void resetStation()}
+                  className="mt-3 text-[10px] text-slate-400 underline"
+                >
+                  换手机扫码
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="text-center text-[10px] font-medium text-slate-600">手机扫码（一次）</p>
+                {qrDataUrl ? (
+                  <img src={qrDataUrl} alt="手机拍照二维码" className="mt-2 rounded-lg border border-slate-100" />
+                ) : (
+                  <div className="mt-2 flex h-[140px] w-[140px] items-center justify-center rounded-lg bg-slate-50 text-[10px] text-slate-400">
+                    生成中…
+                  </div>
+                )}
+                {mobileUrl && (
+                  <p className="mt-2 break-all text-center text-[9px] leading-tight text-slate-400">{mobileUrl}</p>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+
+        <p className="text-center text-[11px] text-slate-400">
+          {code
+            ? '电脑填编号、手机连拍；登记下一条时只改编号，不用重新扫码'
+            : '可先扫码连接手机，再填写编号拍照'}
+        </p>
+
+        <div className="flex gap-2">
+          <button
+            type="button"
+            disabled={disabled || uploading}
+            onClick={() => albumRef.current?.click()}
+            className="flex flex-1 items-center justify-center gap-1 rounded-full border border-slate-200 bg-white py-2.5 text-sm text-slate-700 disabled:opacity-50"
+          >
+            <ImagePlus size={16} />
+            从电脑选图
+          </button>
+        </div>
+
+        <input
+          ref={albumRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={onAlbumPick}
+        />
+
+        {thumbs.length > 0 && (
+          <div className="grid grid-cols-4 gap-2">
+            {thumbs.map((src, idx) => (
+              <div key={`${idx}-${src.slice(0, 24)}`} className="aspect-square overflow-hidden rounded-xl border border-rose-100">
+                <img src={src} alt={`photo-${idx}`} className="h-full w-full object-cover" />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {status && <p className="text-center text-xs text-slate-600">{status}</p>}
+
+        <style>{`
+          @keyframes flash {
+            0% { opacity: 0.9; }
+            100% { opacity: 0; }
+          }
+        `}</style>
+      </div>
     )
   }
 

@@ -8,6 +8,7 @@ export {
   detailApi,
   printApi,
   healthApi,
+  photoRelayApi,
 } from './endpoints'
 
 import {
@@ -19,6 +20,7 @@ import {
   detailApi,
   printApi,
   healthApi,
+  photoRelayApi,
 } from './endpoints'
 
 /** 兼容旧代码的统一入口 */
@@ -52,4 +54,12 @@ export const api = {
   getDetail: detailApi.get,
   saveDetail: detailApi.save,
   printBraceletTag: printApi.braceletTag,
+  createPhotoRelaySession: photoRelayApi.create,
+  getPhotoRelayStation: photoRelayApi.station,
+  syncPhotoRelayCert: photoRelayApi.syncCert,
+  pollPhotoRelay: photoRelayApi.poll,
+  heartbeatPhotoRelay: photoRelayApi.heartbeat,
+  pushPhotoRelayFrame: photoRelayApi.pushFrame,
+  shootPhotoRelay: photoRelayApi.shoot,
+  getPhotoRelaySession: photoRelayApi.get,
 }

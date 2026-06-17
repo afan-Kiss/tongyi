@@ -26,6 +26,7 @@ import {
 import { braceletRepo, operationLogRepo } from '../repositories/bracelet.repository'
 import { detailRepo } from '../repositories/detail.repository'
 import { prisma } from '../lib/prisma'
+import { findCertIndexEntry } from './excel-cert-index.service'
 import { ensureDetailRecord } from './detail.service'
 import type { ExcelSyncResult, InboundDto, NewBraceletDto, OperationResult, OutboundDto } from '../types/api.types'
 
@@ -214,6 +215,26 @@ export async function executeNewInbound(input: NewBraceletDto): Promise<Ok<Opera
 export async function getExcelRowPreview(certNo: string) {
   const code = normalizeCertNo(certNo)
   if (!code) return { ok: false as const, message: '编号无效' }
+
+  const indexed = findCertIndexEntry(code)
+  if (indexed) {
+    const excel = await fetchExcelRowData(code, indexed.row, indexed.sheet)
+    if (excel.ok && excel.data) {
+      return { ok: true as const, data: excel.data }
+    }
+    return {
+      ok: true as const,
+      data: {
+        certNo: code,
+        batch: indexed.batch || '',
+        category: indexed.category || '',
+        qty: indexed.qty ?? 1,
+        excelRow: indexed.row,
+        excelSheet: indexed.sheet,
+      },
+    }
+  }
+
   const excel = await fetchExcelRowData(code)
   if (!excel.ok || !excel.data) {
     return { ok: false as const, message: excel.message || `Excel 中未找到 ${code}` }

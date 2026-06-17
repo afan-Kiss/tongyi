@@ -28,3 +28,16 @@ export function formatCertNo(prefix: string, num: number, widthHint?: number): s
   const width = Math.max(widthHint ?? defaultDigitWidth(prefix), defaultDigitWidth(prefix))
   return `${prefix}${String(num).padStart(width, '0')}`
 }
+
+/** 编号联想：输入 F 时不应匹配 ZF 等更长前缀的编号 */
+export function certMatchesSearchQuery(certNo: string, query: string): boolean {
+  const q = query.trim().toUpperCase()
+  const cert = certNo.trim().toUpperCase()
+  if (!q || !cert.startsWith(q)) return false
+  for (const prefix of CERT_PREFIXES) {
+    if (prefix.length <= q.length) continue
+    if (!prefix.startsWith(q)) continue
+    if (cert.startsWith(prefix)) return false
+  }
+  return true
+}

@@ -24,6 +24,14 @@ export const InventoryPage: React.FC = () => {
     setOpen(true)
   }
 
+  const handleDeleted = (certNo: string) => {
+    setItems((prev) => prev.filter((i) => i.certNo !== certNo))
+    setTotal((t) => Math.max(0, t - 1))
+    setSelected(null)
+    setOpen(false)
+    load()
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -95,7 +103,7 @@ export const InventoryPage: React.FC = () => {
         bracelet={selected}
         open={open}
         onClose={() => setOpen(false)}
-        onDeleted={load}
+        onDeleted={handleDeleted}
         onUpdated={(b) => { setSelected(b); load() }}
         showLabelPrint
       />
