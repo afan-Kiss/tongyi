@@ -1,26 +1,60 @@
-import React, { useEffect, useState } from 'react'
-import { api, type Bracelet } from '@/lib/api'
+import React, { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { api, type Bracelet, type DashboardStats } from '@/lib/api'
 import { isPhotoAsset, mediaThumbUrl } from '@/lib/mediaAsset'
 import { BraceletDrawer } from '@/components/BraceletDrawer'
 import { onInventoryRefresh } from '@/lib/inventoryRefresh'
 import { formatDateTime } from '@/lib/formatDateTime'
 
+export type StockFilter = 'all' | 'inStock' | 'outStock' | 'todayInbound' | 'todayOutbound'
+
+const FILTER_LABELS: Record<StockFilter, string> = {
+  all: '全部',
+  inStock: '在库',
+  outStock: '已出库',
+  todayInbound: '今日入库',
+  todayOutbound: '今日出库',
+}
+
+function parseFilter(raw: string | null): StockFilter {
+  if (raw === 'inStock' || raw === 'outStock' || raw === 'todayInbound' || raw === 'todayOutbound') {
+    return raw
+  }
+  return 'all'
+}
+
 export const InventoryPage: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const filter = parseFilter(searchParams.get('filter'))
   const [q, setQ] = useState('')
-  const [inStockOnly, setInStockOnly] = useState(false)
   const [items, setItems] = useState<Bracelet[]>([])
   const [total, setTotal] = useState(0)
+  const [stats, setStats] = useState<DashboardStats | null>(null)
   const [selected, setSelected] = useState<Bracelet | null>(null)
   const [open, setOpen] = useState(false)
 
+  const listParams = useMemo(() => {
+    const params: Record<string, string | number> = { q, page: 1, pageSize: 200 }
+    if (filter !== 'all') params.filter = filter
+    return params
+  }, [q, filter])
+
   const load = () => {
-    api.listBracelets({ q, inStockOnly: inStockOnly ? 1 : 0, page: 1, pageSize: 100 })
+    api.listBracelets(listParams)
       .then((r) => { setItems(r.data.items); setTotal(r.data.total) })
+    api.stats().then((r) => setStats(r.data)).catch(() => {})
   }
 
-  useEffect(() => { load() }, [q, inStockOnly])
+  useEffect(() => { load() }, [listParams])
 
-  useEffect(() => onInventoryRefresh(load), [q, inStockOnly])
+  useEffect(() => onInventoryRefresh(load), [listParams])
+
+  const setFilter = (next: StockFilter) => {
+    const params = new URLSearchParams(searchParams)
+    if (next === 'all') params.delete('filter')
+    else params.set('filter', next)
+    setSearchParams(params, { replace: true })
+  }
 
   const openItem = async (certNo: string) => {
     const r = await api.getByCert(certNo)
@@ -36,11 +70,40 @@ export const InventoryPage: React.FC = () => {
     load()
   }
 
+  const countHint = filter === 'all' && stats
+    ? `共 ${total} 条（在库 ${stats.inStock} · 已出库 ${stats.outOfStock}）`
+    : `${FILTER_LABELS[filter]} ${total} 条`
+
+  const filterChips: { key: StockFilter; label: string }[] = [
+    { key: 'all', label: '全部' },
+    { key: 'inStock', label: '在库' },
+    { key: 'outStock', label: '已出库' },
+    { key: 'todayInbound', label: '今日入库' },
+    { key: 'todayOutbound', label: '今日出库' },
+  ]
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-xl font-semibold text-slate-900">库存列表</h2>
-        <span className="text-xs text-slate-500">共 {total} 条</span>
+        <span className="text-xs text-slate-500">{countHint}</span>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {filterChips.map(({ key, label }) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setFilter(key)}
+            className={`rounded-full px-3 py-1.5 text-xs font-medium ${
+              filter === key
+                ? 'bg-gradient-to-r from-[#ff2442] to-[#ff6b81] text-white'
+                : 'border border-slate-200 bg-white text-slate-600'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -50,13 +113,6 @@ export const InventoryPage: React.FC = () => {
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-        <button
-          type="button"
-          onClick={() => setInStockOnly((v) => !v)}
-          className={`rounded-full px-4 py-2 text-sm font-medium ${inStockOnly ? 'bg-gradient-to-r from-[#ff2442] to-[#ff6b81] text-white' : 'border border-slate-200 bg-white text-slate-600'}`}
-        >
-          仅在库
-        </button>
       </div>
 
       <div className="grid gap-2 md:grid-cols-2">
@@ -105,6 +161,10 @@ export const InventoryPage: React.FC = () => {
           </button>
         ))}
       </div>
+
+      {!items.length && (
+        <p className="py-8 text-center text-sm text-slate-400">暂无符合条件的记录</p>
+      )}
 
       <BraceletDrawer
         bracelet={selected}

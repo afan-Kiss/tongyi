@@ -64,7 +64,18 @@ export function loadLabelPrintMemory(): LabelPrintMemory {
   if (lineFormats.price?.startsWith('售价') && !lineFormats.price.startsWith('售价:')) {
     lineFormats.price = lineFormats.price.replace(/^售价/, '售价:')
   }
-  return { lineFormats, barcodeManual: parsed.barcodeManual ?? false, priceManual: parsed.priceManual ?? false }
+  const barcode = lineFormats.barcode?.trim() ?? ''
+  let barcodeManual = parsed.barcodeManual ?? false
+  let migrated = false
+  // 旧规则固定 03 前缀：清空并解除手改锁定，让表单按 02 规则重新生成
+  if (barcode.startsWith('03') && /^\d+$/.test(barcode)) {
+    lineFormats.barcode = ''
+    barcodeManual = false
+    migrated = true
+  }
+  const result = { lineFormats, barcodeManual, priceManual: parsed.priceManual ?? false }
+  if (migrated) saveLabelPrintMemory(result)
+  return result
 }
 
 /** 新建一条标签入库时的默认吊牌（不读上次编号/条形码） */

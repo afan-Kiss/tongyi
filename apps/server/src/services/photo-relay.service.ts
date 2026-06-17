@@ -77,7 +77,11 @@ export function createPhotoRelaySession(certNo: string) {
   return { ok: true as const, sessionId: station.sessionId, certNo: code }
 }
 
-export function setPhotoRelayActiveCert(sessionId: string, certNo: string) {
+export function setPhotoRelayActiveCert(
+  sessionId: string,
+  certNo: string,
+  opts?: { ackPhotos?: boolean },
+) {
   const code = normalizeCertNo(certNo)
   if (!code) return { ok: false as const, message: '编号无效' }
   const session = sessions.get(sessionId)
@@ -87,6 +91,9 @@ export function setPhotoRelayActiveCert(sessionId: string, certNo: string) {
     session.certNo = code
     session.photos = []
     session.photoSeq = 0
+  } else if (opts?.ackPhotos) {
+    // 库存编辑等：确认已消费 relay 缓冲，避免重开编辑时重复拉取
+    session.photos = []
   }
   session.pcLastSeen = Date.now()
   touch(session)

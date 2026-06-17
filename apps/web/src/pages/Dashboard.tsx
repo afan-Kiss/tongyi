@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { api, type DashboardStats } from '@/lib/api'
 import { emitInventoryRefresh } from '@/lib/inventoryRefresh'
 import { StatCard } from '@/components/ui/StatCard'
 import { BraceletDrawer } from '@/components/BraceletDrawer'
 
 export const DashboardPage: React.FC = () => {
+  const navigate = useNavigate()
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [error, setError] = useState('')
   const [drawer, setDrawer] = useState<{ open: boolean; certNo: string }>({ open: false, certNo: '' })
@@ -41,10 +42,10 @@ export const DashboardPage: React.FC = () => {
 
       {stats && (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <StatCard title="在库" value={stats.inStock} hint="数量=1" />
-          <StatCard title="已出库" value={stats.outOfStock} accent="from-slate-400 to-slate-300" />
-          <StatCard title="今日出库" value={stats.todayOutbound} accent="from-amber-400 to-orange-300" />
-          <StatCard title="今日入库" value={stats.todayInbound} accent="from-emerald-400 to-teal-300" />
+          <StatCard title="在库" value={stats.inStock} hint="点击筛选" onClick={() => navigate('/inventory/stock?filter=inStock')} />
+          <StatCard title="已出库" value={stats.outOfStock} hint="点击筛选" accent="from-slate-400 to-slate-300" onClick={() => navigate('/inventory/stock?filter=outStock')} />
+          <StatCard title="今日出库" value={stats.todayOutbound} hint="点击筛选" accent="from-amber-400 to-orange-300" onClick={() => navigate('/inventory/stock?filter=todayOutbound')} />
+          <StatCard title="今日入库" value={stats.todayInbound} hint="点击筛选" accent="from-emerald-400 to-teal-300" onClick={() => navigate('/inventory/stock?filter=todayInbound')} />
         </div>
       )}
 

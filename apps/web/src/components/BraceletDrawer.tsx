@@ -9,6 +9,7 @@ import { ExcelSyncPanel } from '@/components/ExcelSyncPanel'
 import { InboundPhotoCapture, type InboundPhotoCaptureHandle } from '@/components/InboundPhotoCapture'
 import { LabelPrintPanel } from '@/components/LabelPrintPanel'
 import { LabelPrintPreview } from '@/components/LabelPrintPreview'
+import { StockOpPanel } from '@/components/StockOpPanel'
 import { fillLabelLinesFromBracelet } from '@/lib/labelPrintSync'
 import { loadLabelPrintMemory } from '@/lib/labelPrintMemory'
 import { formatDateTime } from '@/lib/formatDateTime'
@@ -18,6 +19,7 @@ interface Props {
   open: boolean
   onClose: () => void
   showLabelPrint?: boolean
+  showStockOps?: boolean
   onDeleted?: (certNo: string) => void
   onUpdated?: (b: Bracelet) => void
 }
@@ -37,6 +39,7 @@ export const BraceletDrawer: React.FC<Props> = ({
   open,
   onClose,
   showLabelPrint,
+  showStockOps = true,
   onDeleted,
   onUpdated,
 }) => {
@@ -261,6 +264,7 @@ export const BraceletDrawer: React.FC<Props> = ({
                   ref={photoRef}
                   certNo={current.certNo}
                   deferUpload
+                  ackRelayPhotos
                   disabled={saving}
                   onUploaded={() => {
                     void refreshBracelet()
@@ -348,6 +352,18 @@ export const BraceletDrawer: React.FC<Props> = ({
                 <div className="mt-4 space-y-3">
                   <LabelPrintPreview labelMemory={labelMemory} />
                   <LabelPrintPanel bracelet={current} labelMemory={labelMemory} />
+                </div>
+              )}
+
+              {showStockOps && (
+                <div className="mt-4">
+                  <StockOpPanel
+                    bracelet={current}
+                    onUpdated={(b) => {
+                      setCurrent(b)
+                      onUpdated?.(b)
+                    }}
+                  />
                 </div>
               )}
             </>

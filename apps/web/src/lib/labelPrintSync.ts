@@ -57,8 +57,8 @@ export function parseRingInteger(raw: string | null | undefined): number | null 
 }
 
 /**
- * 条形码：03 + (成本×3+10) + 圈口整数（拼接，非相加）
- * 例：成本1000、圈口57 → 03301057
+ * 条形码：固定 02 + (成本×3+10) + 圈口整数（拼接，非相加）
+ * 例：成本1000、圈口57 → 02301057
  */
 export function computeBarcodeDigits(
   batch: string | null | undefined,
@@ -69,7 +69,7 @@ export function computeBarcodeDigits(
   const ringN = parseRingInteger(ringSize)
   if (costN === null || ringN === null) return null
   const middle = Math.round(costN * 3 + 10)
-  return `03${middle}${ringN}`
+  return `02${middle}${ringN}`
 }
 
 export type LabelFormSync = {
@@ -107,9 +107,12 @@ export function fillLabelLinesFromBracelet(
     if (defaultPrice) lineFormats.price = defaultPrice
   }
 
+  const stored = bracelet.barcodeValue?.trim()
+  const computed = computeBarcodeDigits(bracelet.batch, bracelet.cost, bracelet.ringSize)
   const barcode =
-    bracelet.barcodeValue?.trim() ||
-    computeBarcodeDigits(bracelet.batch, bracelet.cost, bracelet.ringSize) ||
+    (stored && !(stored.startsWith('03') && /^\d+$/.test(stored)) ? stored : null) ||
+    computed ||
+    stored ||
     ''
   if (barcode) lineFormats.barcode = barcode
 
@@ -143,6 +146,12 @@ export function fillLabelLinesFromForm(
   if (shouldBarcode) {
     const barcode = computeBarcodeDigits(form.batch, form.cost, form.ringSize)
     if (barcode) lineFormats.barcode = barcode
+  } else {
+    const prev = lineFormats.barcode?.trim() ?? ''
+    const barcode = computeBarcodeDigits(form.batch, form.cost, form.ringSize)
+    if (barcode && prev.startsWith('03') && /^\d+$/.test(prev)) {
+      lineFormats.barcode = barcode
+    }
   }
 
   return { ...memory, lineFormats }

@@ -19,6 +19,8 @@ interface Props {
   disabled?: boolean
   /** 登记前拍照：先本地缓存，登记成功后再上传 */
   deferUpload?: boolean
+  /** 库存编辑：同步时确认 relay 缓冲，避免重开编辑重复拉取旧照片 */
+  ackRelayPhotos?: boolean
   onUploaded?: () => void | Promise<void>
 }
 
@@ -30,7 +32,7 @@ export interface InboundPhotoCaptureHandle {
 type PendingPhoto = { dataUrl: string; name: string }
 
 export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(function InboundPhotoCapture(
-  { certNo, disabled, deferUpload = false, onUploaded },
+  { certNo, disabled, deferUpload = false, ackRelayPhotos = false, onUploaded },
   ref,
 ) {
   const useRelayMode = !isMobileDevice()
@@ -58,6 +60,7 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
   const streamRef = useRef<MediaStream | null>(null)
 
   const code = certNo.trim().toUpperCase()
+  const relaySeqKey = (sid: string, cert: string) => `jade-relay-seq:${sid}:${cert}`
   const cameraBlockedHint = liveCameraBlockedReason()
   const liveCameraOk = canUseLiveCamera()
 
@@ -193,9 +196,19 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
 
     let cancelled = false
     setRelayCertReady(false)
+    if (sessionId && code) {
+      const storedSeq = sessionStorage.getItem(relaySeqKey(sessionId, code))
+      if (storedSeq) {
+        lastPhotoSeqRef.current = Math.max(lastPhotoSeqRef.current, Number(storedSeq) || 0)
+      }
+    }
+    if (ackRelayPhotos) {
+      pendingRef.current = []
+      setThumbs([])
+    }
     ;(async () => {
       try {
-        const r = await api.syncPhotoRelayCert(sessionId, code)
+        const r = await api.syncPhotoRelayCert(sessionId, code, ackRelayPhotos)
         if (cancelled) return
         if (r.data.changed) {
           pendingRef.current = []
@@ -206,7 +219,12 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
           }
         } else {
           lastPhotoSeqRef.current = r.data.photoSeq ?? lastPhotoSeqRef.current
+          if (ackRelayPhotos) {
+            pendingRef.current = []
+            setThumbs([])
+          }
         }
+        sessionStorage.setItem(relaySeqKey(sessionId, code), String(lastPhotoSeqRef.current))
         prevCodeRef.current = code
         setRelayCertReady(true)
       } catch (e) {
@@ -216,7 +234,7 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
     return () => {
       cancelled = true
     }
-  }, [code, sessionId, disabled, useRelayMode])
+  }, [code, sessionId, disabled, useRelayMode, ackRelayPhotos])
 
   useEffect(() => {
     if (!useRelayMode || !sessionId || disabled || !relayCertReady) return
@@ -233,6 +251,7 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
         if (r.data.photos.length) {
           for (const photo of r.data.photos) {
             lastPhotoSeqRef.current = photo.seq
+            sessionStorage.setItem(relaySeqKey(sessionId, code), String(photo.seq))
             const name = `${code}-photo-${photo.seq}.jpg`
             if (deferUpload) {
               await addPendingPhoto(photo.dataUrl, name)
@@ -242,6 +261,7 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
           }
         } else if (r.data.photoSeq != null) {
           lastPhotoSeqRef.current = Math.max(lastPhotoSeqRef.current, r.data.photoSeq)
+          sessionStorage.setItem(relaySeqKey(sessionId, code), String(lastPhotoSeqRef.current))
         }
       } catch {
         /* 忽略单次轮询失败 */

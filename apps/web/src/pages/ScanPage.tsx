@@ -14,6 +14,7 @@ import { inventoryApi } from '@/api/endpoints'
 
 import { isPhotoAsset, mediaThumbUrl } from '@/lib/mediaAsset'
 
+import { StockOpPanel } from '@/components/StockOpPanel'
 import { emitInventoryRefresh } from '@/lib/inventoryRefresh'
 
 import { useScanWorkbench } from '@/hooks/useScanWorkbench'
@@ -81,7 +82,7 @@ export const ScanPage: React.FC = () => {
       : ''
     if (mode === 'outbound') {
       if (b.qty === 0) {
-        setStatus(`${label}${multiHint} · 已出库，无法再次出库`)
+        setStatus(`${label}${multiHint} · 已出库，可点击下方「确认入库」恢复`)
         setPendingOutbound(null)
       } else {
         setStatus(`${label}${multiHint}`)
@@ -91,7 +92,7 @@ export const ScanPage: React.FC = () => {
     }
     if (mode === 'inbound') {
       if (b.qty === 1) {
-        setStatus(`${label}${multiHint} · 已在库，无需退货入库`)
+        setStatus(`${label}${multiHint} · 已在库，可点击下方「确认出库」`)
       } else {
         setStatus(`${label}${multiHint} · 已售出，可确认退货入库`)
       }
@@ -172,15 +173,11 @@ export const ScanPage: React.FC = () => {
       setBracelet((await inventoryApi.getByCert(pendingOutbound.certNo)).data)
       setPendingOutbound(null)
       setDrawerOpen(true)
+      emitInventoryRefresh()
     } catch (e) {
       setStatus(e instanceof Error ? e.message : String(e))
     }
     refocus()
-  }
-
-  const goReturnInbound = () => {
-    if (!bracelet) return
-    navigate(`/inventory/inbound?type=return&certNo=${encodeURIComponent(bracelet.certNo)}`)
   }
 
   const goRegisterInbound = () => {
@@ -277,17 +274,28 @@ export const ScanPage: React.FC = () => {
         />
       )}
 
-      {mode === 'inbound' && bracelet && bracelet.qty === 0 && drawerOpen && (
-        <div className="rounded-2xl border border-emerald-100 bg-emerald-50/40 p-4 shadow-sm">
-          <p className="text-sm text-slate-700">该货品已售出，确认要退货入库吗？</p>
-          <button
-            type="button"
-            onClick={goReturnInbound}
-            className="mt-3 w-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 py-2.5 text-sm font-semibold text-white"
-          >
-            去退货入库 · {bracelet.certNo}
-          </button>
-        </div>
+      {mode === 'outbound' && bracelet && bracelet.qty === 0 && (
+        <StockOpPanel
+          bracelet={bracelet}
+          onUpdated={(b) => { setBracelet(b); refocus() }}
+        />
+      )}
+
+      {mode === 'inbound' && bracelet && bracelet.qty === 0 && (
+        <StockOpPanel
+          bracelet={bracelet}
+          defaultInboundRemark="退货入库"
+          hint="该货品已售出，确认要退货入库吗？"
+          onUpdated={(b) => { setBracelet(b); refocus() }}
+        />
+      )}
+
+      {mode === 'inbound' && bracelet && bracelet.qty === 1 && (
+        <StockOpPanel
+          bracelet={bracelet}
+          hint="该货品已在库，是否误操作需要出库？"
+          onUpdated={(b) => { setBracelet(b); setPendingOutbound(null); refocus() }}
+        />
       )}
 
       {pendingOutbound && (
@@ -313,6 +321,7 @@ export const ScanPage: React.FC = () => {
         open={drawerOpen}
         onClose={() => { setDrawerOpen(false); refocus() }}
         showLabelPrint
+        showStockOps={false}
         onDeleted={(certNo) => {
           setBracelet(null)
           setDrawerOpen(false)

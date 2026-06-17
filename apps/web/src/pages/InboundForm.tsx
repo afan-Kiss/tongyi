@@ -49,6 +49,7 @@ import {
 
 import { loadLabelPrintMemory, saveLabelPrintMemory, getBarcodeDigits, createDefaultLabelPrintMemory, type LabelPrintMemory } from '@/lib/labelPrintMemory'
 import { fillLabelLinesFromForm } from '@/lib/labelPrintSync'
+import { StockOpPanel } from '@/components/StockOpPanel'
 import { emitInventoryRefresh } from '@/lib/inventoryRefresh'
 
 const BASIC_FIELDS = [
@@ -139,6 +140,8 @@ export const InboundFormPage: React.FC = () => {
   } | null>(null)
 
   const [returnTarget, setReturnTarget] = useState<Bracelet | null>(null)
+  const [registerTarget, setRegisterTarget] = useState<Bracelet | null>(null)
+  const [registerLookupMsg, setRegisterLookupMsg] = useState('')
 
   const [created, setCreated] = useState<Bracelet | null>(null)
   const [excelHint, setExcelHint] = useState('')
@@ -342,6 +345,36 @@ export const InboundFormPage: React.FC = () => {
     return () => { cancelled = true }
 
   }, [kind, returnCertNo])
+
+  useEffect(() => {
+    const code = form.certNo.trim().toUpperCase()
+    if (kind !== 'register' || !code) {
+      setRegisterTarget(null)
+      setRegisterLookupMsg('')
+      return
+    }
+
+    let cancelled = false
+    setRegisterLookupMsg('正在查询…')
+    api.getByCert(code, { dbOnly: true })
+      .then((r) => {
+        if (cancelled) return
+        const b = r.data
+        setRegisterTarget(b)
+        setRegisterLookupMsg(
+          b.qty === 1
+            ? `${code} 已在系统且在库，无需重复登记`
+            : `${code} 已在系统但已出库，可快速恢复在库`,
+        )
+      })
+      .catch(() => {
+        if (cancelled) return
+        setRegisterTarget(null)
+        setRegisterLookupMsg('')
+      })
+
+    return () => { cancelled = true }
+  }, [kind, form.certNo])
 
   const isCertExistsError = (msg: string) => msg.includes('已存在') || msg.includes('已在系统中')
 
@@ -557,6 +590,11 @@ export const InboundFormPage: React.FC = () => {
               从索引预填（只读，不改 Excel）
             </button>
             {excelHint && <p className="text-[11px] text-slate-400">{excelHint}</p>}
+            {registerLookupMsg && (
+              <p className={`text-xs ${registerTarget?.qty === 1 ? 'text-amber-700' : 'text-emerald-700'}`}>
+                {registerLookupMsg}
+              </p>
+            )}
           </div>
 
 
@@ -634,9 +672,30 @@ export const InboundFormPage: React.FC = () => {
 
           <LabelPrintPreview labelMemory={labelMemory} />
 
+          {registerTarget && (
+            <StockOpPanel
+              bracelet={registerTarget}
+              hint={
+                registerTarget.qty === 1
+                  ? '该编号已在库，是否误操作需要出库？'
+                  : '该编号已出库，是否误操作需要恢复在库？'
+              }
+              defaultInboundRemark="误出库恢复"
+              onUpdated={(b) => {
+                setRegisterTarget(b)
+                setRegisterLookupMsg(
+                  b.qty === 1
+                    ? `${b.certNo} 已恢复在库`
+                    : `${b.certNo} 已出库`,
+                )
+                emitInventoryRefresh()
+              }}
+            />
+          )}
+
           <button
             type="button"
-            disabled={submitting || !form.certNo.trim()}
+            disabled={submitting || !form.certNo.trim() || !!registerTarget}
             onClick={onSubmitRegister}
             className="w-full rounded-full bg-gradient-to-r from-[#ff2442] to-[#ff6b81] py-2.5 text-sm font-semibold text-white disabled:opacity-50"
           >
@@ -740,6 +799,18 @@ export const InboundFormPage: React.FC = () => {
             确认退货入库
 
           </button>
+
+          {returnTarget?.qty === 1 && (
+            <StockOpPanel
+              bracelet={returnTarget}
+              hint="该编号已在库，是否误操作需要出库？"
+              onUpdated={(b) => {
+                setReturnTarget(b)
+                setLookupMsg(`${b.certNo} 已出库`)
+                emitInventoryRefresh()
+              }}
+            />
+          )}
 
         </>
 

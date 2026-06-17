@@ -25,7 +25,9 @@ photoRelayRouter.post('/', (req, res) => {
 })
 
 photoRelayRouter.patch('/:sessionId/cert', (req, res) => {
-  const result = setPhotoRelayActiveCert(req.params.sessionId, String(req.body?.certNo || ''))
+  const result = setPhotoRelayActiveCert(req.params.sessionId, String(req.body?.certNo || ''), {
+    ackPhotos: req.body?.ackPhotos === true,
+  })
   if (!result.ok) return sendErr(res, result.message, 404)
   sendOk(res, { certNo: result.certNo, changed: result.changed, photoSeq: result.photoSeq })
 })

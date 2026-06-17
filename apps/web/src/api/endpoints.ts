@@ -141,10 +141,10 @@ export const photoRelayApi = {
       method: 'POST',
       body: JSON.stringify({ stationId: stationId || undefined }),
     }),
-  syncCert: (sessionId: string, certNo: string) =>
+  syncCert: (sessionId: string, certNo: string, ackPhotos?: boolean) =>
     request<{ data: { certNo: string; changed: boolean; photoSeq: number } }>(
       `/photo-relay/${encodeURIComponent(sessionId)}/cert`,
-      { method: 'PATCH', body: JSON.stringify({ certNo }) },
+      { method: 'PATCH', body: JSON.stringify({ certNo, ackPhotos: ackPhotos === true }) },
     ),
   create: (certNo: string) =>
     request<{ data: { sessionId: string; certNo: string } }>('/photo-relay', {

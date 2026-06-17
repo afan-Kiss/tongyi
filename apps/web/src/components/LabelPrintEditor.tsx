@@ -50,7 +50,7 @@ export const LabelPrintEditor: React.FC<Props> = ({ memory, onChange, formSync }
   return (
     <div className="space-y-3">
       <p className="text-[11px] text-slate-400">
-        打印以本区内容为准，改什么打什么（黑体）。条形码规则：前两位批次 + (成本×3+10+圈口整数)。
+        打印以本区内容为准，改什么打什么（黑体）。条形码规则：02 + (成本×3+10) + 圈口整数。
       </p>
       {formSync && (
         <button
@@ -74,7 +74,7 @@ export const LabelPrintEditor: React.FC<Props> = ({ memory, onChange, formSync }
               onChange={(e) => setLine(line.id, e.target.value)}
               placeholder={
                 line.kind === 'barcode'
-                  ? '如 02301057（02批次+成本1000+圈口57）'
+                  ? '如 02301057（02+成本1000+圈口57）'
                   : undefined
               }
               inputMode={line.kind === 'barcode' ? 'numeric' : undefined}

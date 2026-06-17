@@ -97,6 +97,12 @@ _cert_index_ready = False
 _cert_index_loading = False
 _cert_index_built_at: Optional[str] = None
 _cert_index_workbook: str = ""
+_excel_not_open_warned = False
+
+
+def _is_excel_not_running_error(exc: BaseException) -> bool:
+    err = str(exc)
+    return "-2147221021" in err or "GetActiveObject" in err or "操作无法使用" in err
 
 
 def _today() -> str:
@@ -302,7 +308,7 @@ def _build_cert_index_unlocked() -> dict[str, Any]:
 def _build_cert_index() -> dict[str, Any]:
     """扫描活动工作簿全部工作表，建立编号索引（只读）。"""
     global _cert_index_entries, _cert_index_ready, _cert_index_loading
-    global _cert_index_built_at, _cert_index_workbook
+    global _cert_index_built_at, _cert_index_workbook, _excel_not_open_warned
 
     if _cert_index_loading:
         return {"ok": False, "message": "索引正在加载中", "loading": True}
@@ -317,14 +323,22 @@ def _build_cert_index() -> dict[str, Any]:
         _cert_index_ready = True
         _cert_index_built_at = built["builtAt"]
         _cert_index_workbook = built["workbook"]
+        _excel_not_open_warned = False
         logger.info("编号索引已建立：%s 条（工作簿 %s）", len(_cert_index_entries), _cert_index_workbook)
         return built
     except Exception as e:
-        logger.exception("cert index build failed")
+        if _is_excel_not_running_error(e):
+            if not _excel_not_open_warned:
+                logger.warning("编号索引：Excel 未打开，请先打开库存表（之后将静默重试）")
+                _excel_not_open_warned = True
+            msg = "请先打开 Excel 库存表"
+        else:
+            logger.exception("cert index build failed")
+            msg = str(e)
         _reset_connector()
         _cert_index_entries = []
         _cert_index_ready = False
-        return {"ok": False, "message": str(e)}
+        return {"ok": False, "message": msg}
     finally:
         _cert_index_loading = False
 

@@ -156,4 +156,16 @@ export const operationLogRepo = {
       where: { opType: { in: types }, createdAt: { gte: since }, reverted: false },
     })
   },
+
+  /** 今日操作涉及的手镯 ID（去重，与总览统计口径一致） */
+  braceletIdsToday(opType: string | string[], since: Date) {
+    const types = Array.isArray(opType) ? opType : [opType]
+    return prisma.operationLog
+      .findMany({
+        where: { opType: { in: types }, createdAt: { gte: since }, reverted: false },
+        select: { braceletId: true },
+        distinct: ['braceletId'],
+      })
+      .then((rows) => rows.map((r) => r.braceletId))
+  },
 }

@@ -17,9 +17,12 @@ inventoryRouter.get('/stats', async (_req, res) => {
 })
 
 inventoryRouter.get('/', async (req, res) => {
+  const filter = String(req.query.filter || '')
   sendOk(res, await queryList({
     q: String(req.query.q || ''),
-    inStockOnly: req.query.inStockOnly === '1',
+    inStockOnly: filter === 'inStock' || req.query.inStockOnly === '1',
+    outStockOnly: filter === 'outStock',
+    todayOp: filter === 'todayInbound' ? 'inbound' : filter === 'todayOutbound' ? 'outbound' : undefined,
     page: Number(req.query.page || 1),
     pageSize: Number(req.query.pageSize || 50),
   }))

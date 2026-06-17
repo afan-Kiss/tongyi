@@ -112,9 +112,14 @@ export async function queryByScanCode(
   return narrowed.map(presentBracelet)
 }
 
+const TODAY_INBOUND_TYPES = ['inbound', 'new_inbound', 'register'] as const
+const TODAY_OUTBOUND_TYPES = ['outbound'] as const
+
 export async function queryList(params: {
   q?: string
   inStockOnly?: boolean
+  outStockOnly?: boolean
+  todayOp?: 'inbound' | 'outbound'
   page?: number
   pageSize?: number
 }) {
@@ -122,6 +127,13 @@ export async function queryList(params: {
   const pageSize = params.pageSize || 50
   const where: Record<string, unknown> = {}
   if (params.inStockOnly) where.qty = 1
+  if (params.outStockOnly) where.qty = 0
+  if (params.todayOp) {
+    const since = new Date(todayStr())
+    const types = params.todayOp === 'outbound' ? [...TODAY_OUTBOUND_TYPES] : [...TODAY_INBOUND_TYPES]
+    const ids = await operationLogRepo.braceletIdsToday(types, since)
+    where.id = { in: ids.length ? ids : ['__none__'] }
+  }
   if (params.q) {
     const q = params.q.trim()
     where.OR = [
