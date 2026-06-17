@@ -19,23 +19,83 @@ function formatPriceForLabel(raw: string | null | undefined): string {
   return `售价:${body}元`
 }
 
-/** 编号、圈口、售价行随上方表单自动填入 */
-export function applyFormSyncToLabelMemory(
+function parseNumber(raw: string | null | undefined): number | null {
+  const s = (raw ?? '').trim().replace(/,/g, '')
+  if (!s) return null
+  const n = Number(s)
+  return Number.isNaN(n) ? null : n
+}
+
+/** 批次前两位，如 2.0 → 02 */
+export function parseBatchPrefix(batch: string | null | undefined): string {
+  const s = (batch ?? '').trim()
+  if (!s) return '00'
+  const n = parseNumber(s)
+  if (n !== null) {
+    const int = Math.floor(n)
+    return String(int).padStart(2, '0').slice(-2)
+  }
+  const digits = s.replace(/\D/g, '')
+  if (digits.length >= 2) return digits.slice(0, 2)
+  if (digits.length === 1) return digits.padStart(2, '0')
+  return '00'
+}
+
+/** 圈口取整数部分参与条形码，如 57.0 → 57 */
+export function parseRingInteger(raw: string | null | undefined): number | null {
+  const n = parseNumber(raw)
+  if (n === null) return null
+  return Math.floor(n)
+}
+
+/**
+ * 条形码：前两位批次 + (成本×3+10+圈口整数)
+ * 例：批次02、成本1000、圈口57 → 02301057
+ */
+export function computeBarcodeDigits(
+  batch: string | null | undefined,
+  cost: string | null | undefined,
+  ringSize: string | null | undefined,
+): string | null {
+  const costN = parseNumber(cost)
+  const ringN = parseRingInteger(ringSize)
+  if (costN === null || ringN === null) return null
+  const prefix = parseBatchPrefix(batch)
+  const middle = Math.round(costN * 3 + 10 + ringN)
+  return `${prefix}${middle}`
+}
+
+export type LabelFormSync = {
+  certNo?: string | null
+  ringSize?: string | null
+  cost?: string | null
+  batch?: string | null
+}
+
+/** 用表单填充吊牌各行（编号/圈口/售价/条形码） */
+export function fillLabelLinesFromForm(
   memory: LabelPrintMemory,
-  form: { certNo?: string | null; ringSize?: string | null; cost?: string | null },
+  form: LabelFormSync,
+  opts?: { overwriteBarcode?: boolean },
 ): LabelPrintMemory {
   const lineFormats = { ...memory.lineFormats }
   const certNo = form.certNo?.trim().toUpperCase()
-  if (certNo) {
-    lineFormats.cert = `编号:${certNo}`
-  }
+  if (certNo) lineFormats.cert = `编号:${certNo}`
   const ring = formatRingSizeForLabel(form.ringSize)
-  if (ring) {
-    lineFormats.ring = `圈口:${ring}`
-  }
+  if (ring) lineFormats.ring = `圈口:${ring}`
   const cost = form.cost?.trim()
-  if (cost) {
-    lineFormats.price = formatPriceForLabel(cost)
+  if (cost) lineFormats.price = formatPriceForLabel(cost)
+
+  const shouldBarcode = opts?.overwriteBarcode || !memory.barcodeManual
+  if (shouldBarcode) {
+    const barcode = computeBarcodeDigits(form.batch, form.cost, form.ringSize)
+    if (barcode) lineFormats.barcode = barcode
   }
-  return { lineFormats }
+
+  return { ...memory, lineFormats }
+}
+
+/** @deprecated 请用 fillLabelLinesFromForm；打印以编辑框内容为准，不再在打印时覆盖 */
+export function applyFormSyncToLabelMemory(memory: LabelPrintMemory, form: LabelFormSync): LabelPrintMemory {
+  return fillLabelLinesFromForm(memory, form, { overwriteBarcode: false })
 }

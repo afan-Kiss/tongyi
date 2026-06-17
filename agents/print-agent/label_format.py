@@ -29,7 +29,7 @@ DEFAULT_LABEL_LINES: list[dict[str, Any]] = [
         "fontFamily": "simhei",
         "bold": True,
         "yPx": 31,
-        "xPx": 4,
+        "xPx": 9,
         "barcodeHeight": 62,
         "barcodeStretchX": 1.06,
         "captionGapPx": 1,
@@ -58,7 +58,7 @@ DEFAULT_LABEL_LINES: list[dict[str, Any]] = [
         "bold": True,
         "yPx": 160,
         "textAlign": "left",
-        "offsetXPx": 2,
+        "offsetXPx": 12,
     },
     {
         "id": "ring",
@@ -71,7 +71,7 @@ DEFAULT_LABEL_LINES: list[dict[str, Any]] = [
         "bold": True,
         "yPx": 185,
         "textAlign": "left",
-        "offsetXPx": 2,
+        "offsetXPx": 12,
     },
     {
         "id": "price",
@@ -84,7 +84,7 @@ DEFAULT_LABEL_LINES: list[dict[str, Any]] = [
         "bold": True,
         "yPx": 208,
         "textAlign": "left",
-        "offsetXPx": 2,
+        "offsetXPx": 12,
     },
 ]
 

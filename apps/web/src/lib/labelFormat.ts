@@ -177,7 +177,7 @@ export const DEFAULT_LABEL_LINES: LabelLine[] = [
     fontFamily: 'simhei',
     bold: true,
     yPx: 31,
-    xPx: 4,
+    xPx: 9,
     barcodeHeight: 62,
     barcodeStretchX: 1.06,
     captionGapPx: 1,
@@ -206,7 +206,7 @@ export const DEFAULT_LABEL_LINES: LabelLine[] = [
     bold: true,
     yPx: 160,
     textAlign: 'left',
-    offsetXPx: 2,
+    offsetXPx: 12,
   },
   {
     id: 'ring',
@@ -219,7 +219,7 @@ export const DEFAULT_LABEL_LINES: LabelLine[] = [
     bold: true,
     yPx: 185,
     textAlign: 'left',
-    offsetXPx: 2,
+    offsetXPx: 12,
   },
   {
     id: 'price',
@@ -232,7 +232,7 @@ export const DEFAULT_LABEL_LINES: LabelLine[] = [
     bold: true,
     yPx: 208,
     textAlign: 'left',
-    offsetXPx: 2,
+    offsetXPx: 12,
   },
 ]
 

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 
 import { AnimatedTabs } from '@/components/ui/AnimatedTabs'
 
@@ -46,8 +46,9 @@ import {
 
 } from '@/lib/inboundFormStorage'
 
-import { loadLabelPrintMemory, saveLabelPrintMemory, getBarcodeDigits, type LabelPrintMemory } from '@/lib/labelPrintMemory'
-import { applyFormSyncToLabelMemory } from '@/lib/labelPrintSync'
+import { loadLabelPrintMemory, saveLabelPrintMemory, getBarcodeDigits, createDefaultLabelPrintMemory, type LabelPrintMemory } from '@/lib/labelPrintMemory'
+import { fillLabelLinesFromForm, computeBarcodeDigits } from '@/lib/labelPrintSync'
+import { emitInventoryRefresh } from '@/lib/inventoryRefresh'
 
 const BASIC_FIELDS = [
 
@@ -78,8 +79,6 @@ function parseInboundKind(raw: string | null): InboundKind {
 export const InboundFormPage: React.FC = () => {
 
   const [params, setParams] = useSearchParams()
-
-  const navigate = useNavigate()
 
   const initialKind = parseInboundKind(params.get('type'))
 
@@ -171,6 +170,18 @@ export const InboundFormPage: React.FC = () => {
         cost: row.cost || f.cost,
         remark: row.remark || f.remark,
       }))
+      setLabelMemory((mem) =>
+        fillLabelLinesFromForm(
+          { ...mem, barcodeManual: false },
+          {
+            certNo: code,
+            batch: row.batch,
+            ringSize: row.ringSize,
+            cost: row.cost,
+          },
+          { overwriteBarcode: true },
+        ),
+      )
       setExcelHint(row.excelRow ? `已从索引预填（Excel 第 ${row.excelRow} 行，未改 Excel）` : '已从索引预填')
     } catch (e) {
       setExcelHint(e instanceof Error ? e.message : String(e))
@@ -243,7 +254,15 @@ export const InboundFormPage: React.FC = () => {
     saveLabelPrintMemory(labelMemory)
   }, [labelMemory])
 
-
+  useEffect(() => {
+    if (kind !== 'register' || labelMemory.barcodeManual) return
+    const barcode = computeBarcodeDigits(form.batch, form.cost, form.ringSize)
+    if (!barcode) return
+    setLabelMemory((mem) => {
+      if (mem.barcodeManual || mem.lineFormats.barcode === barcode) return mem
+      return { ...mem, lineFormats: { ...mem.lineFormats, barcode } }
+    })
+  }, [kind, form.batch, form.cost, form.ringSize, labelMemory.barcodeManual])
 
   useEffect(() => {
 
@@ -319,6 +338,29 @@ export const InboundFormPage: React.FC = () => {
     setCertExists({ certNo: code, bracelet })
   }, [])
 
+  const resetRegisterWorkbench = useCallback(() => {
+    const mem = loadNewInboundMemory()
+    setForm({
+      certNo: '',
+      arrivalDate: mem.arrivalDate,
+      batch: mem.batch,
+      category: mem.category,
+      ringSize: '',
+      cost: '',
+      remark: mem.remark,
+    })
+    setDetail({ ...mem.detail })
+    const freshLabel = createDefaultLabelPrintMemory()
+    saveLabelPrintMemory(freshLabel)
+    setLabelMemory(freshLabel)
+    setCreated(null)
+    setStatus('')
+    setExcelHint('')
+    setCertExists(null)
+    setParams(new URLSearchParams({ type: 'register' }), { replace: true })
+    emitInventoryRefresh()
+  }, [setParams])
+
   const onSubmitRegister = async () => {
     if (!form.certNo.trim()) {
       setMessageDialog({ title: '请填写编号', message: '标签入库需要先填写手写编号。', variant: 'info' })
@@ -336,8 +378,7 @@ export const InboundFormPage: React.FC = () => {
         // 数据库无记录，继续登记
       }
       const hasDetail = !!(detail.description && String(detail.description).trim())
-      const memForSubmit = applyFormSyncToLabelMemory(labelMemory, form)
-      const barcodeValue = getBarcodeDigits(memForSubmit)
+      const barcodeValue = getBarcodeDigits(labelMemory)
       const data = await registerInbound.submit({
         ...form,
         barcodeValue: barcodeValue || undefined,
@@ -357,8 +398,8 @@ export const InboundFormPage: React.FC = () => {
       try {
         const printMsg = await printBraceletTag(data.bracelet, { labelMemory })
         const done = photoWarn ? `${msg} · ${photoWarn} · ${printMsg}` : `${msg} · ${printMsg}`
-        setStatus(done)
-        setMessageDialog({ title: '打印已发送', message: done, variant: 'success' })
+        resetRegisterWorkbench()
+        setMessageDialog({ title: '打印已发送', message: `${done}\n\n表单已清空，可继续下一条。`, variant: 'success' })
       } catch (e) {
         const err = e instanceof Error ? e.message : String(e)
         const fail = photoWarn ? `${msg} · ${photoWarn} · 打印失败：${err}` : `${msg}，但打印失败：${err}`
@@ -563,14 +604,16 @@ export const InboundFormPage: React.FC = () => {
             <LabelPrintEditor
               memory={labelMemory}
               onChange={setLabelMemory}
-              formSync={{ certNo: form.certNo, ringSize: form.ringSize, cost: form.cost }}
+              formSync={{
+                certNo: form.certNo,
+                ringSize: form.ringSize,
+                cost: form.cost,
+                batch: form.batch,
+              }}
             />
           </div>
 
-          <LabelPrintPreview
-            labelMemory={labelMemory}
-            formSync={{ certNo: form.certNo, ringSize: form.ringSize, cost: form.cost }}
-          />
+          <LabelPrintPreview labelMemory={labelMemory} />
 
           <button
             type="button"
@@ -700,16 +743,7 @@ export const InboundFormPage: React.FC = () => {
       )}
 
       {created && kind === 'register' && (
-        <>
-          <LabelPrintPanel bracelet={created} label="重新打印吊牌" labelMemory={labelMemory} />
-          <button
-            type="button"
-            onClick={() => navigate('/inventory/inbound?type=register')}
-            className="w-full rounded-full border border-slate-200 py-2.5 text-sm text-slate-700"
-          >
-            继续标签入库
-          </button>
-        </>
+        <LabelPrintPanel bracelet={created} label="重新打印吊牌" labelMemory={labelMemory} />
       )}
 
       <CertExistsDialog

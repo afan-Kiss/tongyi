@@ -66,7 +66,9 @@ if not errorlevel 1 (
 
   echo.
 
-  echo [警告] 端口 4725 已被占用 — 请先运行 stop.bat 或关闭旧窗口
+  echo [提示] 检测到 4725 端口占用，正在自动停止旧进程...
+
+  call "%~dp0stop.bat" silent
 
   echo.
 

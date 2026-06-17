@@ -2,21 +2,15 @@ import React, { useMemo } from 'react'
 
 import { buildPrintTemplate } from '@/lib/buildPrintTemplate'
 import { literalBarcodeContent, lineFontCss, resolveLiteralTextLines } from '@/lib/labelFormat'
-import { applyFormSyncToLabelMemory } from '@/lib/labelPrintSync'
 import type { LabelPrintMemory } from '@/lib/labelPrintMemory'
 
 type Props = {
   labelMemory: LabelPrintMemory
-  formSync?: { certNo: string; ringSize: string; cost?: string }
 }
 
-/** 展示吊牌实际会打印的内容（与输入框一致） */
-export const LabelPrintPreview: React.FC<Props> = ({ labelMemory, formSync }) => {
-  const resolved = useMemo(
-    () => (formSync ? applyFormSyncToLabelMemory(labelMemory, formSync) : labelMemory),
-    [labelMemory, formSync],
-  )
-  const template = useMemo(() => buildPrintTemplate(resolved), [resolved])
+/** 展示吊牌实际会打印的内容（与编辑框一致） */
+export const LabelPrintPreview: React.FC<Props> = ({ labelMemory }) => {
+  const template = useMemo(() => buildPrintTemplate(labelMemory), [labelMemory])
   const lines = useMemo(() => resolveLiteralTextLines(template.lines), [template.lines])
   const barcodeLine = template.lines.find((l) => l.kind === 'barcode' && l.show)
   const barcodeContent = useMemo(() => literalBarcodeContent(barcodeLine), [barcodeLine])
@@ -31,11 +25,16 @@ export const LabelPrintPreview: React.FC<Props> = ({ labelMemory, formSync }) =>
         {lines.map(({ line, text }) => {
           const css = lineFontCss(line)
           const left = line.textAlign === 'left'
+          const extraBold = line.bold && (line.id === 'warning' || line.id === 'title')
           return (
             <div
               key={line.id}
               className={`leading-snug text-slate-900 ${left ? 'text-left pl-2' : 'text-center'}`}
-              style={css}
+              style={{
+                ...css,
+                fontWeight: extraBold ? 900 : css.fontWeight,
+                WebkitTextStroke: extraBold ? '0.3px black' : undefined,
+              }}
             >
               {text}
             </div>
@@ -46,7 +45,14 @@ export const LabelPrintPreview: React.FC<Props> = ({ labelMemory, formSync }) =>
             <div className="mt-2 border-t border-slate-100 pt-2 font-mono text-[10px] tracking-widest text-slate-600">
               ||||| {barcodeContent} |||||
             </div>
-            <p className="mt-1 text-[10px] tracking-wider text-slate-600" style={lineFontCss(barcodeLine!)}>
+            <p
+              className="mt-1 text-[10px] tracking-wider text-slate-600"
+              style={{
+                ...lineFontCss(barcodeLine!),
+                fontWeight: 900,
+                WebkitTextStroke: '0.3px black',
+              }}
+            >
               {barcodeContent}
             </p>
             <p className="mt-1 text-[9px] text-slate-400">↑ 条形码区域（CODE128）</p>

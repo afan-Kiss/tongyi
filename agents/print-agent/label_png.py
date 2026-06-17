@@ -166,7 +166,7 @@ def _draw_centered(
     dx: int = 0,
 
     offset_x: int = 0,
-
+    bold: bool = False,
 ) -> int:
 
     box = draw.textbbox((0, 0), text, font=font)
@@ -177,7 +177,15 @@ def _draw_centered(
 
     x = max(4, (canvas_w - text_w) // 2 + dx + offset_x)
 
-    draw.text((x, y - box[1]), text, fill="black", font=font)
+    stroke = 1 if bold else 0
+    draw.text(
+        (x, y - box[1]),
+        text,
+        fill="black",
+        font=font,
+        stroke_width=stroke,
+        stroke_fill="black",
+    )
 
     return y + text_h
 
@@ -191,11 +199,20 @@ def _draw_left(
     dx: int = 0,
     margin_x: int = 8,
     offset_x: int = 0,
+    bold: bool = False,
 ) -> int:
     box = draw.textbbox((0, 0), text, font=font)
     text_h = box[3] - box[1]
     x = max(4, margin_x + dx + offset_x)
-    draw.text((x, y - box[1]), text, fill="black", font=font)
+    stroke = 1 if bold else 0
+    draw.text(
+        (x, y - box[1]),
+        text,
+        fill="black",
+        font=font,
+        stroke_width=stroke,
+        stroke_fill="black",
+    )
     return y + text_h
 
 
@@ -436,6 +453,7 @@ def render_jewelry_tag_png(
                 canvas_w,
                 dx,
                 _line_offset_x(line),
+                bold=bold,
             )
         return cap_y
 
@@ -450,8 +468,8 @@ def render_jewelry_tag_png(
         y = y_pos + _line_offset_y(line)
         ox = _line_offset_x(line)
         if _line_text_align(line) == "left":
-            return _draw_left(draw, y, text, font, canvas_w, dx, margin_x=8, offset_x=ox)
-        return _draw_centered(draw, y, text, font, canvas_w, dx, ox)
+            return _draw_left(draw, y, text, font, canvas_w, dx, margin_x=8, offset_x=ox, bold=bold)
+        return _draw_centered(draw, y, text, font, canvas_w, dx, ox, bold=bold)
 
     for line in fixed_lines:
         kind = str(line.get("kind") or "text")
@@ -487,9 +505,9 @@ def render_jewelry_tag_png(
             continue
         font = _font(size, font_family=font_family, bold=bold)
         if _line_text_align(line) == "left":
-            flow_bottom = _draw_left(draw, flow_bottom, text, font, canvas_w, dx, margin_x=8) + 6
+            flow_bottom = _draw_left(draw, flow_bottom, text, font, canvas_w, dx, margin_x=8, bold=bold) + 6
         else:
-            flow_bottom = _draw_centered(draw, flow_bottom, text, font, canvas_w, dx) + 6
+            flow_bottom = _draw_centered(draw, flow_bottom, text, font, canvas_w, dx, bold=bold) + 6
 
 
 
