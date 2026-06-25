@@ -1,4 +1,4 @@
-async function request(path, options = {}) {
+async function request(path, options = {}, attempt = 0) {
   const res = await fetch(`/api${path}`, {
     credentials: 'include',
     ...options,
@@ -17,7 +17,16 @@ async function request(path, options = {}) {
   }
 
   if (!res.ok) {
-    throw new Error(toFriendlyError(data.error || data.message));
+    const rawMsg = String(data.error || data.message || '').trim();
+    const retryAuth =
+      res.status === 401 &&
+      attempt < 3 &&
+      (/请先登录|登录状态同步|AUTH_REQUIRED/i.test(rawMsg) || data.code === 'AUTH_REQUIRED');
+    if (retryAuth) {
+      await new Promise((r) => setTimeout(r, 350 * (attempt + 1)));
+      return request(path, options, attempt + 1);
+    }
+    throw new Error(toFriendlyError(rawMsg));
   }
   if (data.result && typeof data.result === 'object') {
     return { ...data, ...data.result };
@@ -28,6 +37,9 @@ async function request(path, options = {}) {
 function toFriendlyError(raw) {
   const s = String(raw || '').trim();
   if (!s) return '出了点问题，请稍后再试';
+  if (/请先登录|登录状态同步|AUTH_REQUIRED/i.test(s)) {
+    return '系统登录状态同步中，请稍候再点「刷新订单」（无需另注册账号）';
+  }
   if (/extension\.sender|imMessageToRim|ACK timeout/i.test(s)) {
     if (/买家聊天|千帆|拍照|管理员|订单|配置|确认|发送|未确认/.test(s)) return s;
     return '发送未成功，请确认千帆客服已打开并重试';

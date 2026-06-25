@@ -28,7 +28,12 @@ function loadCapturedTemplates(dataDir) {
 
 function saveCapturedTemplates(dataDir, data) {
   const file = captureFilePath(dataDir);
-  fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
+  try {
+    fs.mkdirSync(dataDir, { recursive: true });
+    fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
+  } catch (err) {
+    console.warn('[bridge-capture] 模板写入失败:', err.message || err);
+  }
 }
 
 function sanitizeHeaders(headers) {

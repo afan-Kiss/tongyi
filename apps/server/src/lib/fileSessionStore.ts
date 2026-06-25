@@ -24,9 +24,25 @@ export class FileSessionStore extends session.Store {
   }
 
   get(sid: string, callback: (err: unknown, session?: session.SessionData | null) => void): void {
+    this.readSession(sid, 3, callback)
+  }
+
+  private readSession(
+    sid: string,
+    attemptsLeft: number,
+    callback: (err: unknown, session?: session.SessionData | null) => void,
+  ): void {
     const f = this.file(sid)
     fs.readFile(f, 'utf8', (err, raw) => {
-      if (err) return callback(null, null)
+      if (err) {
+        const code = (err as NodeJS.ErrnoException).code
+        if (code === 'ENOENT') return callback(null, null)
+        if (attemptsLeft > 1) {
+          setTimeout(() => this.readSession(sid, attemptsLeft - 1, callback), 60)
+          return
+        }
+        return callback(err)
+      }
       try {
         const data = JSON.parse(raw) as StoredSession
         if (data.expires && data.expires <= Date.now()) {
@@ -34,8 +50,8 @@ export class FileSessionStore extends session.Store {
           return callback(null, null)
         }
         callback(null, data.sess)
-      } catch {
-        callback(null, null)
+      } catch (parseErr) {
+        callback(parseErr)
       }
     })
   }
