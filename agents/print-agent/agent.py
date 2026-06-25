@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import concurrent.futures
 import io
 import logging
 import os
@@ -19,6 +20,19 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+
+PRINT_JOB_TIMEOUT_SEC = float(os.environ.get("PRINT_JOB_TIMEOUT_SEC", "45"))
+
+
+def _run_with_timeout(label: str, fn, *args, **kwargs):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+        fut = ex.submit(fn, *args, **kwargs)
+        try:
+            return fut.result(timeout=PRINT_JOB_TIMEOUT_SEC)
+        except concurrent.futures.TimeoutError as e:
+            raise RuntimeError(
+                f"打印超时（{int(PRINT_JOB_TIMEOUT_SEC)} 秒）：请检查 PUQU 打印机与璞趣桌面是否卡住"
+            ) from e
 
 
 def _default_printer_name() -> str:
@@ -193,6 +207,8 @@ def _template_offsets(template: dict[str, Any]) -> dict[str, float]:
 
 @app.get("/health")
 def health():
+    if request.args.get("quick") == "1":
+        return jsonify({"ok": True, "message": "print-agent ready"})
     printer = _pick_puqu_printer()
     mode = "gdi"
     driver = None
@@ -285,7 +301,9 @@ def print_bracelet_tag():
         )
 
         if pqapi:
-            print_meta = print_jewelry_tag_pqapi(
+            print_meta = _run_with_timeout(
+                "pqapi",
+                print_jewelry_tag_pqapi,
                 printer_name,
                 payload,
                 side=side,
@@ -307,7 +325,9 @@ def print_bracelet_tag():
             )
             mode_label = "璞趣PQAPI"
         elif _uses_gdi_driver(printer_name):
-            print_jewelry_tag_gdi(
+            _run_with_timeout(
+                "gdi",
+                print_jewelry_tag_gdi,
                 printer_name,
                 payload,
                 side=side,
@@ -318,12 +338,29 @@ def print_bracelet_tag():
             mode_label = "GDI"
         else:
             jobs = build_bracelet_tag_tspl(bracelet, side=side, template=template)
-            for idx, (label, tspl) in enumerate(jobs):
-                if idx > 0:
-                    time.sleep(1.2)
-                _send_raw_tspl(printer_name, tspl)
-                logger.info("TSPL %s on %s", label, printer_name)
+
+            def _send_all_tspl() -> None:
+                for idx, (label, tspl) in enumerate(jobs):
+                    if idx > 0:
+                        time.sleep(1.2)
+                    _send_raw_tspl(printer_name, tspl)
+                    logger.info("TSPL %s on %s", label, printer_name)
+
+            _run_with_timeout("tspl", _send_all_tspl)
             mode_label = "TSPL"
+            if side == "both":
+                msg = f"已打印 25×70 珠宝吊牌（{mode_label}，{printer_name}）"
+            elif side == "front":
+                msg = f"已打印信息区（{mode_label}，{printer_name}）"
+            else:
+                msg = f"已打印条码区（{mode_label}，{printer_name}）"
+            return jsonify({
+                "ok": True,
+                "message": msg,
+                "printer": printer_name,
+                "printMode": "tspl",
+                "preset": AQ00_PRESET,
+            })
 
         if side == "both":
             msg = f"已打印 25×70 珠宝吊牌（{mode_label}，{printer_name}）"
@@ -372,4 +409,10 @@ def print_label():
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=int(os.environ.get("PRINT_AGENT_PORT", "4729")), debug=False)
+    # threaded=True：避免单次打印卡住 Win32 驱动时，/health 与其它请求全部无响应
+    app.run(
+        host="127.0.0.1",
+        port=int(os.environ.get("PRINT_AGENT_PORT", "4729")),
+        debug=False,
+        threaded=True,
+    )

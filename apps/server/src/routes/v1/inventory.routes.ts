@@ -1,8 +1,8 @@
 import { Router } from 'express'
 import { deleteBraceletByCert } from '../../services/inventory-command.service'
+import { importBraceletFromExcelOnQuery } from '../../services/excel-query-import.service'
 import {
   findBraceletInDb,
-  queryByCertNo,
   queryByScanCode,
   queryDashboard,
   queryList,
@@ -29,23 +29,39 @@ inventoryRouter.get('/', async (req, res) => {
 })
 
 inventoryRouter.get('/by-cert/:certNo', async (req, res) => {
-  const dbOnly = req.query.dbOnly === '1' || req.query.dbOnly === 'true'
-  const bracelet = dbOnly
-    ? await findBraceletInDb(req.params.certNo)
-    : await queryByCertNo(req.params.certNo)
+  const bracelet = await findBraceletInDb(req.params.certNo)
   if (!bracelet) return sendErr(res, `未找到编号或条形码 ${req.params.certNo}`, 404)
   sendOk(res, bracelet)
 })
 
 inventoryRouter.get('/by-scan/:code', async (req, res) => {
-  const dbOnly = req.query.dbOnly === '1' || req.query.dbOnly === 'true'
   const includeList = req.query.includeList === '1' || req.query.includeList === 'true'
-  const items = await queryByScanCode(req.params.code, {
-    syncExcel: !dbOnly,
-    includeList,
+  const importFromExcel = req.query.importFromExcel === '1' || req.query.importFromExcel === 'true'
+  let items = await queryByScanCode(req.params.code, { includeList })
+  let importedFromExcel = false
+  let excelSource: 'cache' | 'live' | null = null
+  let needsPhoto = false
+
+  if (!items.length && importFromExcel) {
+    const imported = await importBraceletFromExcelOnQuery(req.params.code)
+    if (imported) {
+      const refetched = await findBraceletInDb(imported.certNo)
+      if (refetched) items = [refetched]
+      importedFromExcel = imported.imported
+      excelSource = imported.fromCache ? 'cache' : 'live'
+      needsPhoto = imported.needsPhoto
+    }
+  }
+
+  if (!items.length) {
+    return sendErr(res, `未找到编号或条形码 ${req.params.code}（系统与 Excel 均无匹配）`, 404)
+  }
+  sendOk(res, {
+    items,
+    importedFromExcel,
+    excelSource,
+    needsPhoto,
   })
-  if (!items.length) return sendErr(res, `未找到编号或条形码 ${req.params.code}`, 404)
-  sendOk(res, { items })
 })
 
 inventoryRouter.patch('/by-cert/:certNo', async (req, res) => {

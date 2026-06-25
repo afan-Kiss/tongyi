@@ -55,10 +55,18 @@ export interface OperationLog {
   id: string
   certNo: string
   opType: string
+  opLabel?: string
+  detail?: string
   createdAt: string
   reverted: boolean
   excelSynced: boolean
-  bracelet?: Bracelet
+  price?: string | null
+  salesPerson?: string | null
+  salesChannel?: string | null
+  priorPrice?: string | null
+  priorSoldDate?: string | null
+  remarkHint?: string | null
+  bracelet?: Pick<Bracelet, 'id' | 'certNo' | 'category' | 'batch' | 'ringSize' | 'cost'> | null
 }
 
 export interface DashboardStats {
@@ -67,6 +75,8 @@ export interface DashboardStats {
   todayOutbound: number
   todayInbound: number
   recentLogs: OperationLog[]
+  todayOutboundLogs?: OperationLog[]
+  todayInboundLogs?: OperationLog[]
 }
 
 export interface ListResult {
@@ -133,6 +143,10 @@ export interface AppSettings {
   defaultSalesChannel: string
   printerName?: string
   printerModel?: string
+  photoWatermark?: {
+    enabled: boolean
+    fontSizeBoost: number
+  }
 }
 
 export interface SystemStatus {
@@ -205,6 +219,13 @@ export interface ExcelSyncResult {
   snapshotBase64?: string
   beforeSnapshotBase64?: string
   afterSnapshotBase64?: string
+  /** 打开详情时实时截取的 Excel 行现状 */
+  currentSnapshotBase64?: string
+  currentSyncedAt?: string
+  /** 现状截图失败时的原因（仍有改前/改后时可一并返回） */
+  currentSnapshotError?: string
+  /** 现状截图来自本地缓存（非实时截取） */
+  currentFromCache?: boolean
   syncedAt?: string
   verify?: Record<string, string>
 }

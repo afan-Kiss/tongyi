@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import QRCode from 'qrcode'
 import { Check, X } from 'lucide-react'
-import { api, type AppSettings, type SystemStatus } from '@/lib/api'
+import { api, authApi, type AppSettings, type SystemStatus } from '@/lib/api'
 import { LabelPrintDebugPanel } from '@/components/LabelPrintDebugPanel'
 
 const PORTAL_PATH = '/inventory'
@@ -95,13 +95,27 @@ function ServiceStatusLine({
   )
 }
 
+function mergePrintAgentStatus(prev: SystemStatus | null, next: SystemStatus): SystemStatus {
+  if (next.printAgent.online || !prev?.printAgent.online) return next
+  // 连续两次探测失败才显示离线，避免打印忙时界面闪红
+  return { ...next, printAgent: prev.printAgent }
+}
+
 export const SettingsPage: React.FC = () => {
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [status, setStatus] = useState<SystemStatus | null>(null)
+  const printAgentOfflineStreak = useRef(0)
   const [lanQr, setLanQr] = useState('')
   const [publicQr, setPublicQr] = useState('')
   const [msg, setMsg] = useState('')
   const [copiedUrl, setCopiedUrl] = useState('')
+  const [restartingPrint, setRestartingPrint] = useState(false)
+  const [displayName, setDisplayName] = useState('')
+  const [displayNameLoaded, setDisplayNameLoaded] = useState(false)
+  const [displayNameSaveHint, setDisplayNameSaveHint] = useState('')
+  const savedDisplayNameRef = useRef('')
+  const displayNameDraftRef = useRef('')
+  const saveDisplayNameTimer = useRef<number | null>(null)
 
   const port = status?.port || 4725
   const lanIp = useMemo(() => pickLanIp(status?.lanIps || []), [status?.lanIps])
@@ -110,21 +124,41 @@ export const SettingsPage: React.FC = () => {
   const publicBase = normalizeBaseUrl(settings?.publicUrl || '')
   const publicUrl = publicBase ? `${publicBase}${PORTAL_PATH}` : ''
 
+  const applyStatus = useCallback((next: SystemStatus) => {
+    setStatus((prev) => {
+      if (next.printAgent.online) {
+        printAgentOfflineStreak.current = 0
+        return next
+      }
+      printAgentOfflineStreak.current += 1
+      if (prev?.printAgent.online && printAgentOfflineStreak.current < 2) {
+        return mergePrintAgentStatus(prev, next)
+      }
+      return next
+    })
+  }, [])
+
   useEffect(() => {
     const load = () => {
-      Promise.all([api.getSettings(), api.getStatus()])
-        .then(([s, st]) => {
+      Promise.all([api.getSettings(), api.getStatus(), authApi.profile()])
+        .then(([s, st, profile]) => {
           setSettings(s.data)
+          const dn = String(profile.data.displayName || '').trim()
+          setDisplayName(dn)
+          displayNameDraftRef.current = dn
+          savedDisplayNameRef.current = dn
+          setDisplayNameLoaded(true)
+          printAgentOfflineStreak.current = 0
           setStatus(st.data)
         })
         .catch((e) => setMsg(e.message))
     }
     load()
     const timer = window.setInterval(() => {
-      api.getStatus().then((st) => setStatus(st.data)).catch(() => {})
+      api.getStatus().then((st) => applyStatus(st.data)).catch(() => {})
     }, 10000)
     return () => window.clearInterval(timer)
-  }, [])
+  }, [applyStatus])
 
   useEffect(() => {
     if (!lanUrl) return
@@ -138,6 +172,40 @@ export const SettingsPage: React.FC = () => {
     }
     QRCode.toDataURL(publicUrl, { width: 180, margin: 1 }).then(setPublicQr).catch(() => setPublicQr(''))
   }, [publicUrl])
+
+  const persistDisplayName = useCallback(async (name: string) => {
+    const trimmed = name.trim()
+    if (trimmed === savedDisplayNameRef.current) return
+    try {
+      const r = await authApi.saveProfile(trimmed)
+      savedDisplayNameRef.current = trimmed
+      setDisplayName(trimmed)
+      displayNameDraftRef.current = trimmed
+      setDisplayNameSaveHint('已保存')
+      window.dispatchEvent(new CustomEvent('user-profile:updated', { detail: r.data }))
+      window.setTimeout(() => setDisplayNameSaveHint(''), 2000)
+    } catch (e) {
+      setDisplayNameSaveHint(e instanceof Error ? e.message : '保存失败')
+    }
+  }, [])
+
+  const scheduleDisplayNameSave = useCallback(
+    (name: string) => {
+      displayNameDraftRef.current = name
+      if (saveDisplayNameTimer.current) window.clearTimeout(saveDisplayNameTimer.current)
+      saveDisplayNameTimer.current = window.setTimeout(() => {
+        saveDisplayNameTimer.current = null
+        void persistDisplayName(name)
+      }, 600)
+    },
+    [persistDisplayName],
+  )
+
+  useEffect(() => {
+    return () => {
+      if (saveDisplayNameTimer.current) window.clearTimeout(saveDisplayNameTimer.current)
+    }
+  }, [])
 
   const copyUrl = useCallback(async (url: string) => {
     try {
@@ -157,6 +225,7 @@ export const SettingsPage: React.FC = () => {
         excelBridgeEnabled: true,
         printerName: settings.printerName,
         printerModel: settings.printerModel || 'PUQU_AQ00',
+        photoWatermark: settings.photoWatermark,
       }) as { data: AppSettings }
       setSettings(r.data)
       setMsg('已保存')
@@ -165,13 +234,59 @@ export const SettingsPage: React.FC = () => {
     }
   }
 
-  if (!settings) return <p className="text-sm text-slate-500">加载中...</p>
+  const restartPrintAgent = async () => {
+    setRestartingPrint(true)
+    setMsg('')
+    try {
+      const r = await api.restartPrintAgent()
+      const st = await api.getStatus()
+      printAgentOfflineStreak.current = 0
+      setStatus(st.data)
+      setMsg(r.data.ok ? r.data.message : `重启失败：${r.data.message}`)
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : String(e))
+    } finally {
+      setRestartingPrint(false)
+    }
+  }
+
+  if (!settings || !displayNameLoaded) return <p className="text-sm text-slate-500">加载中...</p>
 
   const virtualIps = (status?.lanIps || []).filter((ip) => ip.startsWith('172.'))
 
   return (
     <div className="space-y-4">
       <h2 className="text-xl font-semibold text-slate-900">系统设置</h2>
+
+      <section className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm">
+        <h3 className="text-sm font-semibold text-slate-800">操作员用户名</h3>
+        <p className="mt-1 text-xs leading-relaxed text-slate-500">
+          用于界面展示与操作识别，<strong>与登录账号、密码无关</strong>。每个登录账号各自保存，输入后自动保存。
+        </p>
+        <label className="mt-3 block text-sm">
+          <span className="text-slate-500">显示用户名</span>
+          <input
+            className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            value={displayName}
+            onChange={(e) => {
+              const v = e.target.value
+              setDisplayName(v)
+              scheduleDisplayNameSave(v)
+            }}
+            onBlur={() => {
+              if (saveDisplayNameTimer.current) {
+                window.clearTimeout(saveDisplayNameTimer.current)
+                saveDisplayNameTimer.current = null
+              }
+              void persistDisplayName(displayNameDraftRef.current)
+            }}
+            placeholder="如：张三"
+          />
+        </label>
+        {displayNameSaveHint && (
+          <p className="mt-2 text-xs text-emerald-600">{displayNameSaveHint}</p>
+        )}
+      </section>
 
       <section className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm">
         <h3 className="text-sm font-semibold text-slate-800">网络访问</h3>
@@ -241,6 +356,49 @@ export const SettingsPage: React.FC = () => {
         </label>
       </section>
 
+      <section className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm">
+        <h3 className="text-sm font-semibold text-slate-800">商品照片水印</h3>
+        <p className="mt-1 text-xs leading-relaxed text-slate-500">
+          水印在<strong>查看时动态叠加</strong>，不写入原图文件，保存设置后刷新页面即可生效。历史已烧录水印的旧照片无法改样式，新上传的照片可随时调整。
+        </p>
+        <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            checked={settings.photoWatermark?.enabled !== false}
+            onChange={(e) =>
+              setSettings({
+                ...settings,
+                photoWatermark: {
+                  enabled: e.target.checked,
+                  fontSizeBoost: settings.photoWatermark?.fontSizeBoost ?? 16,
+                },
+              })
+            }
+            className="rounded border-slate-300"
+          />
+          显示编号与时间水印
+        </label>
+        <label className="mt-3 block text-sm">
+          <span className="text-slate-500">字号加大（像素，默认 16 ≈ 大 4 号）</span>
+          <input
+            type="number"
+            min={0}
+            max={48}
+            className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            value={settings.photoWatermark?.fontSizeBoost ?? 16}
+            onChange={(e) =>
+              setSettings({
+                ...settings,
+                photoWatermark: {
+                  enabled: settings.photoWatermark?.enabled !== false,
+                  fontSizeBoost: Math.max(0, Math.min(48, Number(e.target.value) || 0)),
+                },
+              })
+            }
+          />
+        </label>
+      </section>
+
       <LabelPrintDebugPanel />
 
       {status && (
@@ -272,6 +430,16 @@ export const SettingsPage: React.FC = () => {
               online={status.printAgent.online}
               message={status.printAgent.message}
             />
+            {!status.printAgent.online && (
+              <button
+                type="button"
+                disabled={restartingPrint}
+                onClick={() => void restartPrintAgent()}
+                className="mt-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700 transition hover:bg-rose-100 disabled:opacity-50"
+              >
+                {restartingPrint ? '正在重启打印服务…' : '重启打印 Agent'}
+              </button>
+            )}
           </div>
         </section>
       )}

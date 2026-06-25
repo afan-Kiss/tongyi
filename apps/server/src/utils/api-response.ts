@@ -7,8 +7,15 @@ export function sendOk<T>(res: Response, data: T, message?: string, status = 200
   res.status(status).json(body)
 }
 
-export function sendErr(res: Response, message: string, status = 400, code?: string): void {
+export function sendErr(
+  res: Response,
+  message: string,
+  status = 400,
+  code?: string,
+  solutions?: string[],
+): void {
   const body: ApiError = { ok: false, message }
   if (code) body.code = code
+  if (solutions?.length) body.solutions = solutions
   res.status(status).json(body)
 }

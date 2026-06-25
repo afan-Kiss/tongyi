@@ -1,4 +1,7 @@
+import path from 'node:path'
+import fs from 'node:fs'
 import { mediaPublicUrl } from '../adapters/media/media-store.adapter'
+import { getDataDir } from '../config/env'
 
 type MediaRow = {
   path: string
@@ -7,11 +10,17 @@ type MediaRow = {
   mimeType?: string | null
 }
 
+function mediaFileExists(relPath: string): boolean {
+  return fs.existsSync(path.join(getDataDir(), relPath.replace(/\\/g, '/')))
+}
+
 export function presentMediaAsset<T extends MediaRow>(asset: T) {
+  const thumbOk = asset.thumbPath ? mediaFileExists(asset.thumbPath) : false
+  const thumbServePath = thumbOk ? asset.thumbPath! : asset.path
   return {
     ...asset,
     url: mediaPublicUrl(asset.path),
-    thumbUrl: asset.thumbPath ? mediaPublicUrl(asset.thumbPath) : mediaPublicUrl(asset.path),
+    thumbUrl: mediaPublicUrl(thumbServePath),
   }
 }
 

@@ -1,18 +1,28 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Pencil, Trash2, X } from 'lucide-react'
 import type { Bracelet, BraceletDetail, ExcelSyncResult, MediaAsset } from '@/lib/api'
 import { api } from '@/lib/api'
+import { operationsApi } from '@/api/endpoints'
 import { emitInventoryRefresh } from '@/lib/inventoryRefresh'
-import { isPhotoAsset, mediaAssetUrl, mediaThumbUrl } from '@/lib/mediaAsset'
+import { isPhotoAsset, mediaAssetUrl } from '@/lib/mediaAsset'
+import { MediaThumbImg } from '@/components/MediaThumbImg'
 import { ExcelSyncPanel } from '@/components/ExcelSyncPanel'
+import { ExcelSnapshotGallery } from '@/components/ExcelSnapshotGallery'
 import { InboundPhotoCapture, type InboundPhotoCaptureHandle } from '@/components/InboundPhotoCapture'
 import { LabelPrintPanel } from '@/components/LabelPrintPanel'
 import { LabelPrintEditor } from '@/components/LabelPrintEditor'
+import { LabelTagPreview } from '@/components/LabelTagPreview'
 import { StockOpPanel } from '@/components/StockOpPanel'
 import { fillLabelLinesFromBracelet } from '@/lib/labelPrintSync'
 import { getBarcodeDigits, loadLabelPrintMemory, type LabelPrintMemory } from '@/lib/labelPrintMemory'
 import { formatDateTime } from '@/lib/formatDateTime'
+import { useScanWorkbench } from '@/hooks/useScanWorkbench'
+
+function hasExcelSnapshots(sync: ExcelSyncResult | null | undefined): boolean {
+  if (!sync) return false
+  return !!(sync.beforeSnapshotBase64 || sync.afterSnapshotBase64 || sync.snapshotBase64)
+}
 
 interface Props {
   bracelet: Bracelet | null
@@ -20,6 +30,14 @@ interface Props {
   onClose: () => void
   showLabelPrint?: boolean
   showStockOps?: boolean
+  /** 扫码「退货入库」：右侧栏按 current.qty 展示重新入库，已在库时不显示出库 */
+  inboundReturnMode?: boolean
+  /** 传给右侧出入库面板（扫码退货入库等场景） */
+  defaultInboundRemark?: string
+  showInboundRemark?: boolean
+  stockOpHint?: string
+  /** 无照片时提示拍照（如从 Excel 刚导入） */
+  promptAddPhoto?: boolean
   onDeleted?: (certNo: string) => void
   onUpdated?: (b: Bracelet) => void
 }
@@ -40,6 +58,11 @@ export const BraceletDrawer: React.FC<Props> = ({
   onClose,
   showLabelPrint,
   showStockOps = true,
+  inboundReturnMode = false,
+  defaultInboundRemark,
+  showInboundRemark,
+  stockOpHint,
+  promptAddPhoto = false,
   onDeleted,
   onUpdated,
 }) => {
@@ -50,6 +73,8 @@ export const BraceletDrawer: React.FC<Props> = ({
   const [saveMsg, setSaveMsg] = useState('')
   const [excelSync, setExcelSync] = useState<ExcelSyncResult | null>(null)
   const [partialSuccess, setPartialSuccess] = useState(false)
+  const [drawerSnapshots, setDrawerSnapshots] = useState<ExcelSyncResult | null>(null)
+  const [snapshotLoading, setSnapshotLoading] = useState(false)
   const [current, setCurrent] = useState<Bracelet | null>(bracelet)
   const [form, setForm] = useState({
     arrivalDate: '',
@@ -62,27 +87,144 @@ export const BraceletDrawer: React.FC<Props> = ({
   const [detail, setDetail] = useState<Partial<BraceletDetail>>({})
   const [labelMemory, setLabelMemory] = useState<LabelPrintMemory>(() => loadLabelPrintMemory())
   const photoRef = useRef<InboundPhotoCaptureHandle>(null)
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+  const prevOpenRef = useRef(false)
+  const orderHoverTimerRef = useRef<number | null>(null)
+  const orderHoverCountdownRef = useRef<number | null>(null)
+  const [orderLoadReady, setOrderLoadReady] = useState(false)
+  const [orderPanelHover, setOrderPanelHover] = useState(false)
+  const [orderHoverSecondsLeft, setOrderHoverSecondsLeft] = useState(2)
+  const ORDER_LOAD_DELAY_MS = 2000
+  const ORDER_LOAD_DELAY_SEC = ORDER_LOAD_DELAY_MS / 1000
+  const workbench = useScanWorkbench()
+  const { retryExcel, partialMessage: stockPartialMessage, excelLoading } = workbench
+
+  const loadDrawerSnapshots = useCallback(async (certNo: string, refresh = false) => {
+    setSnapshotLoading(true)
+    try {
+      const res = await operationsApi.excelSnapshot(certNo, refresh)
+      setDrawerSnapshots(res.data)
+    } catch {
+      setDrawerSnapshots(null)
+    } finally {
+      setSnapshotLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (open && !prevOpenRef.current) {
+      setEditing(false)
+      setDeleteMsg('')
+      setSaveMsg('')
+      setExcelSync(null)
+      setPartialSuccess(false)
+      setDrawerSnapshots(null)
+    }
+    prevOpenRef.current = open
+  }, [open])
+
+  const clearOrderHoverTimer = useCallback(() => {
+    if (orderHoverTimerRef.current) {
+      window.clearTimeout(orderHoverTimerRef.current)
+      orderHoverTimerRef.current = null
+    }
+    if (orderHoverCountdownRef.current) {
+      window.clearInterval(orderHoverCountdownRef.current)
+      orderHoverCountdownRef.current = null
+    }
+  }, [])
+
+  const resetOrderHover = useCallback(() => {
+    setOrderPanelHover(false)
+    setOrderHoverSecondsLeft(ORDER_LOAD_DELAY_SEC)
+    clearOrderHoverTimer()
+  }, [clearOrderHoverTimer, ORDER_LOAD_DELAY_SEC])
+
+  useEffect(() => {
+    if (!open) {
+      setOrderLoadReady(false)
+      resetOrderHover()
+    }
+  }, [open, resetOrderHover])
+
+  useEffect(() => {
+    if (inboundReturnMode && current?.qty === 0) {
+      setOrderLoadReady(true)
+      resetOrderHover()
+      return
+    }
+    setOrderLoadReady(false)
+    resetOrderHover()
+  }, [current?.certNo, current?.qty, inboundReturnMode, resetOrderHover])
+
+  const onStockPanelMouseEnter = () => {
+    if (orderLoadReady) return
+    setOrderPanelHover(true)
+    setOrderHoverSecondsLeft(ORDER_LOAD_DELAY_SEC)
+    clearOrderHoverTimer()
+    orderHoverCountdownRef.current = window.setInterval(() => {
+      setOrderHoverSecondsLeft((sec) => Math.max(0, sec - 1))
+    }, 1000)
+    orderHoverTimerRef.current = window.setTimeout(() => {
+      setOrderLoadReady(true)
+      resetOrderHover()
+    }, ORDER_LOAD_DELAY_MS)
+  }
+
+  const onStockPanelMouseLeave = () => {
+    resetOrderHover()
+  }
 
   useEffect(() => {
     if (!open) return
-    setEditing(false)
-    setDeleteMsg('')
-    setSaveMsg('')
-    setExcelSync(null)
-    setPartialSuccess(false)
     const prev = document.body.style.overflow
     document.body.style.overflow = 'hidden'
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCloseRef.current() }
     window.addEventListener('keydown', onKey)
     return () => {
       document.body.style.overflow = prev
       window.removeEventListener('keydown', onKey)
     }
-  }, [open, onClose])
+  }, [open])
 
   useEffect(() => {
-    setCurrent(bracelet)
-    if (!bracelet) return
+    if (!open || !current?.certNo) return
+    void loadDrawerSnapshots(current.certNo)
+  }, [open, current?.certNo, loadDrawerSnapshots])
+
+  useEffect(() => {
+    if (!open || !bracelet?.certNo) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const r = await api.getByCert(bracelet.certNo)
+        if (cancelled) return
+        setCurrent(r.data)
+        setLabelMemory(fillLabelLinesFromBracelet(loadLabelPrintMemory(), r.data))
+      } catch {
+        /* 保留列表带入的数据 */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [open, bracelet?.certNo])
+
+  useEffect(() => {
+    if (!hasExcelSnapshots(excelSync) || !current?.certNo) return
+    void loadDrawerSnapshots(current.certNo)
+  }, [excelSync, current?.certNo, loadDrawerSnapshots])
+
+  useEffect(() => {
+    if (!bracelet) {
+      setCurrent(null)
+      return
+    }
+    if (!open) {
+      setCurrent(bracelet)
+    }
+    if (editing) return
     setForm({
       arrivalDate: bracelet.arrivalDate || '',
       batch: bracelet.batch || '',
@@ -93,12 +235,34 @@ export const BraceletDrawer: React.FC<Props> = ({
     })
     setDetail({ description: bracelet.detail?.description || '' })
     setLabelMemory(fillLabelLinesFromBracelet(loadLabelPrintMemory(), bracelet))
-  }, [bracelet])
+  }, [bracelet, open, editing])
 
-  const printLabelMemory = useMemo(
-    () => (current ? fillLabelLinesFromBracelet(loadLabelPrintMemory(), current) : null),
-    [current?.certNo, current?.ringSize, current?.cost, current?.batch, current?.barcodeValue, current?.labelPrice],
-  )
+  const displayBarcode = useMemo(() => {
+    if (!current) return ''
+    const fromLabel = getBarcodeDigits(labelMemory)
+    return (fromLabel || current.barcodeValue || '').trim()
+  }, [current, labelMemory])
+
+  const dualStockPanel = showStockOps && !editing
+
+  const stockInboundRemark = inboundReturnMode ? (defaultInboundRemark ?? '退货入库') : defaultInboundRemark
+  const stockShowInboundRemark = inboundReturnMode ? true : showInboundRemark
+  const stockOpHintResolved = inboundReturnMode
+    ? `当前${current?.qty === 1 ? '在库' : '已出库'} · 右侧可分别操作入库 / 出库，同步 Excel`
+    : stockOpHint
+
+  useEffect(() => {
+    if (!dualStockPanel) {
+      setOrderLoadReady(false)
+      resetOrderHover()
+    }
+  }, [dualStockPanel, resetOrderHover])
+
+  useEffect(() => {
+    if (open && bracelet) {
+      setCurrent(bracelet)
+    }
+  }, [open, bracelet])
 
   if (!open || !current) return null
 
@@ -141,30 +305,17 @@ export const BraceletDrawer: React.FC<Props> = ({
       if (photoRef.current?.pendingCount()) {
         await photoRef.current.flushPending(current.certNo)
       }
-      const r = await api.updateBracelet(current.certNo, {
+      await api.updateBracelet(current.certNo, {
         ...form,
         labelPrice: labelMemory.lineFormats.price?.trim() || undefined,
         barcodeValue: getBarcodeDigits(labelMemory) || undefined,
         detail: detail.description?.trim() ? { description: detail.description } : undefined,
       })
-      const updated = r.data.bracelet
-      if (updated) {
-        setCurrent(updated)
-        onUpdated?.(updated)
-      }
-      if (r.data.partialSuccess) {
-        setPartialSuccess(true)
-        setExcelSync(r.data.excelSync)
-        setSaveMsg('已保存到数据库，Excel 同步失败')
-        setEditing(false)
-      } else if (r.data.excelSync && !r.data.excelSync.ok) {
-        setExcelSync(r.data.excelSync)
-        setSaveMsg('已保存到数据库')
-        setEditing(false)
-      } else {
-        setSaveMsg('保存成功')
-        setEditing(false)
-      }
+      const fresh = await refreshBracelet()
+      onUpdated?.(fresh)
+      emitInventoryRefresh()
+      setSaveMsg('保存成功')
+      setEditing(false)
     } catch (e) {
       setSaveMsg(e instanceof Error ? e.message : String(e))
     } finally {
@@ -182,22 +333,73 @@ export const BraceletDrawer: React.FC<Props> = ({
     }
   }
 
-  return createPortal(
+  const stockOpPanel = (
     <>
-      <div className="drawer-overlay" onClick={onClose} aria-hidden />
-      <aside className="drawer-panel" role="dialog" aria-modal="true" aria-label={`${current.certNo} 详情`}>
-        <div className="drawer-panel-inner p-4 pb-2">
+      <StockOpPanel
+        bracelet={current}
+        embedded
+        bothStockActions
+        inboundReturnMode={inboundReturnMode}
+        defaultInboundRemark={stockInboundRemark}
+        showInboundRemark={stockShowInboundRemark}
+        hint={stockOpHintResolved}
+        orderLoadActive={true}
+        orderLoadHovering={orderPanelHover}
+        orderLoadSecondsLeft={orderHoverSecondsLeft}
+        workbench={workbench}
+        embedExcelSync={false}
+        onExcelSyncChange={(sync, partial) => {
+          setExcelSync(sync)
+          setPartialSuccess(partial)
+          if (hasExcelSnapshots(sync) && current.certNo) {
+            void loadDrawerSnapshots(current.certNo)
+          }
+        }}
+        onUpdated={(b) => {
+          setCurrent(b)
+          onUpdated?.(b)
+        }}
+      />
+      {(excelSync || partialSuccess) && (
+        <ExcelSyncPanel
+          result={excelSync}
+          partialSuccess={partialSuccess}
+          partialMessage={stockPartialMessage || '数据库已更新，Excel 同步失败'}
+          hideSnapshots
+          onRetry={partialSuccess ? retryExcel : undefined}
+          onClose={() => {
+            setExcelSync(null)
+            setPartialSuccess(false)
+          }}
+        />
+      )}
+    </>
+  )
+
+  return createPortal(
+    <div className="detail-modal-root" onClick={onClose}>
+      <div
+        className={dualStockPanel ? 'detail-modal-dual' : 'detail-modal-single-wrap'}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          className={`detail-modal-panel ${dualStockPanel ? 'detail-modal-panel--detail' : ''}`}
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${current.certNo} 详情`}
+        >
+        <div className="detail-modal-header shrink-0 border-b border-rose-100/80 bg-white/95 px-4 py-3 backdrop-blur-sm">
           <div className="flex items-start justify-between gap-2">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-900">{current.certNo}</h2>
-              {current.barcodeValue && current.barcodeValue !== current.certNo && (
-                <p className="text-xs text-slate-500">条形码：{current.barcodeValue}</p>
+            <div className="min-w-0">
+              <h2 className="truncate text-lg font-semibold tracking-wide text-slate-900">{current.certNo}</h2>
+              {displayBarcode && displayBarcode !== current.certNo && (
+                <p className="truncate text-xs text-slate-500">条形码：{displayBarcode}</p>
               )}
               <p className="text-xs text-slate-500">
                 {current.qty === 1 ? '在库' : '已出库'} · {current.category || '未分类'}
               </p>
             </div>
-            <div className="flex gap-1">
+            <div className="flex shrink-0 gap-1">
               {!editing && (
                 <button
                   type="button"
@@ -213,11 +415,13 @@ export const BraceletDrawer: React.FC<Props> = ({
               </button>
             </div>
           </div>
-
+        </div>
+        <div className="detail-modal-panel-inner p-4 pb-2">
           {editing ? (
-            <div className="mt-4 space-y-4">
+            <div className="space-y-4">
               <div className="rounded-2xl border border-rose-50 bg-rose-50/20 p-3">
-                <h3 className="mb-2 text-sm font-semibold text-slate-800">基础信息（同步 Excel）</h3>
+                <h3 className="mb-2 text-sm font-semibold text-slate-800">基础信息（仅数据库，不改 Excel）</h3>
+                <p className="mb-2 text-[11px] text-slate-500">修改 Excel 请通过出库/入库操作；此处只更新系统内记录。</p>
                 <div className="grid gap-2">
                   {BASIC_FIELDS.map(([key, label]) => (
                     <label key={key} className="block text-sm">
@@ -264,18 +468,9 @@ export const BraceletDrawer: React.FC<Props> = ({
               <div className="rounded-2xl border border-white/70 bg-white/80 p-3">
                 <h3 className="mb-2 text-sm font-semibold text-slate-800">照片</h3>
                 {photos.length > 0 && (
-                  <div className="mb-3 grid grid-cols-2 gap-2">
+                  <div className="mb-3 grid grid-cols-4 gap-1.5 sm:grid-cols-5">
                     {photos.map((p) => (
-                      <div key={p.id} className="relative">
-                        <img src={mediaThumbUrl(p)} alt="" className="h-28 w-full rounded-xl border border-rose-100 object-cover" />
-                        <button
-                          type="button"
-                          onClick={() => onDeletePhoto(p)}
-                          className="absolute right-1 top-1 rounded-full bg-red-500/90 p-1 text-white"
-                        >
-                          <X size={12} />
-                        </button>
-                      </div>
+                      <PhotoThumb key={p.id} asset={p} onDelete={() => onDeletePhoto(p)} />
                     ))}
                   </div>
                 )}
@@ -285,9 +480,6 @@ export const BraceletDrawer: React.FC<Props> = ({
                   deferUpload
                   ackRelayPhotos
                   disabled={saving}
-                  onUploaded={() => {
-                    void refreshBracelet()
-                  }}
                 />
               </div>
 
@@ -327,7 +519,7 @@ export const BraceletDrawer: React.FC<Props> = ({
             </div>
           ) : (
             <>
-              <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
+              <div className="grid grid-cols-2 gap-2 text-sm">
                 {([
                   ['批次', current.batch],
                   ['圈口', current.ringSize],
@@ -353,26 +545,42 @@ export const BraceletDrawer: React.FC<Props> = ({
                 </p>
               )}
 
-              {(photos.length > 0 || videos.length > 0) && (
-                <div className="mt-4 space-y-3">
+              {(promptAddPhoto || photos.length > 0) && (
+                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50/70 p-4 shadow-sm">
+                  <h3 className="text-sm font-semibold text-amber-950">
+                    {photos.length > 0 ? `照片 (${photos.length})` : '请添加照片'}
+                  </h3>
+                  <p className="mt-1 text-xs leading-relaxed text-amber-900/80">
+                    {photos.length > 0
+                      ? '可继续拍照或从相册选图补充。'
+                      : '该条目已从 Excel 导入系统，尚未有照片。请用下方电脑摄像头或手机扫码拍照留存。'}
+                  </p>
                   {photos.length > 0 && (
-                    <div>
-                      <h3 className="mb-2 text-sm font-semibold text-slate-800">照片 ({photos.length})</h3>
-                      <div className="grid grid-cols-2 gap-2">
-                        {photos.map((p) => (
-                          <MediaThumb key={p.id} asset={p} />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {videos.length > 0 && (
-                    <div>
-                      <h3 className="mb-2 text-sm font-semibold text-slate-800">视频 ({videos.length})</h3>
-                      {videos.map((v) => (
-                        <video key={v.id} controls className="mb-2 w-full rounded-xl border border-rose-100" src={mediaAssetUrl(v)} />
+                    <div className="mt-3 grid grid-cols-4 gap-1.5 sm:grid-cols-5">
+                      {photos.map((p) => (
+                        <PhotoThumb key={p.id} asset={p} />
                       ))}
                     </div>
                   )}
+                  <div className="mt-3" data-no-scan-refocus>
+                    <InboundPhotoCapture
+                      key={current.certNo}
+                      certNo={current.certNo}
+                      ackRelayPhotos={false}
+                      onUploaded={() => void refreshBracelet()}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {videos.length > 0 && (
+                <div className="mt-4 space-y-3">
+                  <div>
+                    <h3 className="mb-2 text-sm font-semibold text-slate-800">视频 ({videos.length})</h3>
+                    {videos.map((v) => (
+                      <video key={v.id} controls className="mb-2 w-full rounded-xl border border-rose-100" src={mediaAssetUrl(v)} />
+                    ))}
+                  </div>
                 </div>
               )}
 
@@ -383,38 +591,55 @@ export const BraceletDrawer: React.FC<Props> = ({
                 </div>
               )}
 
-              {showLabelPrint && printLabelMemory && (
-                <div className="mt-4">
-                  <LabelPrintPanel bracelet={current} labelMemory={printLabelMemory} />
-                </div>
-              )}
-
-              {showStockOps && (
-                <div className="mt-4">
-                  <StockOpPanel
-                    bracelet={current}
-                    onUpdated={(b) => {
-                      setCurrent(b)
-                      onUpdated?.(b)
+              {showLabelPrint && (
+                <div className="mt-4 space-y-3 rounded-2xl border border-slate-100 bg-slate-50/50 p-4 shadow-sm">
+                  <h3 className="text-sm font-semibold text-slate-800">吊牌打印</h3>
+                  <LabelPrintEditor
+                    memory={labelMemory}
+                    onChange={setLabelMemory}
+                    persistToLocalStorage={false}
+                    formSync={{
+                      certNo: current.certNo,
+                      ringSize: current.ringSize || '',
+                      cost: current.cost || '',
+                      batch: current.batch || '',
                     }}
                   />
+                  <div className="rounded-xl border border-rose-100 bg-white p-2">
+                    <p className="mb-1.5 text-xs font-semibold text-slate-700">吊牌预览</p>
+                    <LabelTagPreview memory={labelMemory} />
+                  </div>
+                  <LabelPrintPanel bracelet={current} labelMemory={labelMemory} />
                 </div>
               )}
             </>
           )}
 
-          {(excelSync || partialSuccess) && (
+          <div className="mt-4">
+            <ExcelSnapshotGallery
+              result={drawerSnapshots}
+              loading={snapshotLoading || excelLoading}
+              onRefresh={() => void loadDrawerSnapshots(current.certNo, true)}
+            />
+          </div>
+
+          {!dualStockPanel && (excelSync || partialSuccess) && (
             <ExcelSyncPanel
               result={excelSync}
               partialSuccess={partialSuccess}
-              partialMessage="数据库已更新，Excel 同步失败"
-              onClose={() => { setExcelSync(null); setPartialSuccess(false) }}
+              partialMessage={stockPartialMessage || '数据库已更新，Excel 同步失败'}
+              hideSnapshots
+              onRetry={partialSuccess ? retryExcel : undefined}
+              onClose={() => {
+                setExcelSync(null)
+                setPartialSuccess(false)
+              }}
             />
           )}
         </div>
 
         {!editing && (
-          <div className="drawer-footer shrink-0 border-t border-rose-100 bg-white/95 px-4 py-3 backdrop-blur-sm">
+          <div className="detail-modal-footer shrink-0 border-t border-rose-100 bg-white/95 px-4 py-3 backdrop-blur-sm">
             <button
               type="button"
               disabled={deleting}
@@ -428,26 +653,64 @@ export const BraceletDrawer: React.FC<Props> = ({
             <p className="mt-1 text-center text-[10px] text-slate-400">仅删除数据库与本地图片，Excel 行需自行处理</p>
           </div>
         )}
-      </aside>
-    </>,
+        </div>
+
+        {dualStockPanel && (
+          <div
+            className={`detail-modal-panel detail-modal-panel--stock transition-colors duration-200 ${
+              orderPanelHover && !orderLoadReady
+                ? 'bg-emerald-50/90 ring-2 ring-inset ring-emerald-400'
+                : ''
+            }`}
+            role="complementary"
+            aria-label={`${current.certNo} 出入库`}
+            onMouseEnter={onStockPanelMouseEnter}
+            onMouseLeave={onStockPanelMouseLeave}
+          >
+            <div className="shrink-0 border-b border-rose-100/80 bg-gradient-to-r from-rose-50/80 to-white px-4 py-3">
+              <h3 className="text-base font-semibold text-slate-900">出入库操作</h3>
+              <p className="mt-0.5 text-xs text-slate-500">
+                {current.certNo} · {current.qty === 1 ? '在库' : '已出库'}
+              </p>
+            </div>
+            <div className="detail-modal-panel--stock-inner p-4 pb-5" data-no-scan-refocus>{stockOpPanel}</div>
+          </div>
+        )}
+      </div>
+    </div>,
     document.body,
   )
 }
 
-function MediaThumb({ asset }: { asset: MediaAsset }) {
+function PhotoThumb({ asset, onDelete }: { asset: MediaAsset; onDelete?: () => void }) {
   return (
-    <a
-      href={mediaAssetUrl(asset)}
-      target="_blank"
-      rel="noreferrer"
-      className="block overflow-hidden rounded-xl border border-rose-100 bg-slate-100"
-    >
-      <img
-        src={mediaThumbUrl(asset)}
-        alt=""
-        className="h-36 w-full object-cover"
-        loading="lazy"
-      />
-    </a>
+    <div className="relative aspect-square min-w-0">
+      <a
+        href={mediaAssetUrl(asset)}
+        target="_blank"
+        rel="noreferrer"
+        title="点击查看原图"
+        className="block h-full w-full overflow-hidden rounded-lg border border-rose-100 bg-slate-100"
+      >
+        <MediaThumbImg
+          asset={asset}
+          className="h-full w-full object-cover"
+          placeholderClassName="flex h-full w-full items-center justify-center bg-slate-100 text-[10px] text-slate-400"
+          loading="lazy"
+        />
+      </a>
+      {onDelete && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault()
+            onDelete()
+          }}
+          className="absolute right-0.5 top-0.5 rounded-full bg-red-500/90 p-0.5 text-white"
+        >
+          <X size={10} />
+        </button>
+      )}
+    </div>
   )
 }

@@ -70,7 +70,8 @@ operationsRouter.post('/retry-excel/:logId', async (req, res) => {
 })
 
 operationsRouter.get('/excel-snapshot/:certNo', async (req, res) => {
-  const result = await getExcelSnapshot(req.params.certNo)
+  const refresh = req.query.refresh === '1' || req.query.refresh === 'true'
+  const result = await getExcelSnapshot(req.params.certNo, { refresh })
   if (!result.ok) return sendErr(res, result.message, 502)
   sendOk(res, result)
 })

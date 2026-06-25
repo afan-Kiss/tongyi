@@ -1,9 +1,12 @@
 import { loadEnv, getPort, getDataDir, getMobileHttpsPort } from './config/env'
 import { createApp } from './app'
 import { prisma } from './lib/prisma'
+import { ensureAuthUsersFile } from './services/auth.service'
+import { checkStartupLicense, scheduleLicenseRefresh } from './services/youdaoLicense.service'
 import { startMobileHttpsServer } from './lib/mobile-https'
 import { ensureDefaultLabelTemplate } from './services/settings.service'
 import { scheduleCertIndexWarmup } from './services/excel-cert-index.service'
+import { schedulePendingExcelSyncRetry } from './services/operation.service'
 import {
   startExcelBridgeProcess,
   stopExcelBridgeProcess,
@@ -12,14 +15,23 @@ import {
   startXiangyuProcesses,
   stopXiangyuProcesses,
 } from './services/process-manager.service'
+import { schedulePrintAgentWatch } from './services/print-agent-recovery.service'
+import { appendBackendLog, registerProcessCrashHandlers } from './lib/crash-log'
 
 loadEnv()
 getDataDir()
+registerProcessCrashHandlers()
+appendBackendLog('startup', 'backend 启动')
 
 const port = getPort()
 
 async function main() {
   await prisma.$connect()
+
+  ensureAuthUsersFile()
+
+  await checkStartupLicense({ timeoutMs: 1500 })
+  scheduleLicenseRefresh()
 
   await ensureDefaultLabelTemplate()
 
@@ -32,9 +44,11 @@ async function main() {
   if (excelEnabled) {
     startExcelBridgeProcess()
     scheduleCertIndexWarmup()
+    schedulePendingExcelSyncRetry()
   }
 
   startPrintAgentProcess()
+  schedulePrintAgentWatch()
 
   startXiangyuProcesses()
 
@@ -63,6 +77,9 @@ async function main() {
 }
 
 main().catch((err) => {
+  appendBackendLog('startup-failed', err instanceof Error ? err.message : String(err), {
+    stack: err instanceof Error ? err.stack?.slice(0, 2000) : undefined,
+  })
   console.error('启动失败:', err)
   process.exit(1)
 })

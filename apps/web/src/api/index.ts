@@ -1,5 +1,6 @@
 export * from './types'
 export {
+  authApi,
   inventoryApi,
   operationsApi,
   mediaApi,
@@ -9,6 +10,7 @@ export {
   printApi,
   healthApi,
   photoRelayApi,
+  auditApi,
 } from './endpoints'
 
 import {
@@ -21,6 +23,7 @@ import {
   printApi,
   healthApi,
   photoRelayApi,
+  auditApi,
 } from './endpoints'
 
 /** 兼容旧代码的统一入口 */
@@ -45,6 +48,7 @@ export const api = {
   getSettings: settingsApi.get,
   saveSettings: settingsApi.save,
   getStatus: settingsApi.status,
+  restartPrintAgent: settingsApi.restartPrintAgent,
   getLabelTemplate: settingsApi.labelTemplate.get,
   saveLabelTemplate: settingsApi.labelTemplate.save,
   exportExcel: excelApi.export,
@@ -57,6 +61,7 @@ export const api = {
   printBraceletTag: printApi.braceletTag,
   createPhotoRelaySession: photoRelayApi.create,
   getPhotoRelayStation: photoRelayApi.station,
+  getPhotoRelayMobileInfo: photoRelayApi.mobileInfo,
   syncPhotoRelayCert: photoRelayApi.syncCert,
   pollPhotoRelay: photoRelayApi.poll,
   heartbeatPhotoRelay: photoRelayApi.heartbeat,

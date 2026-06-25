@@ -4,7 +4,7 @@
 
  */
 
-import { spawn, type ChildProcess } from 'node:child_process'
+import { execSync, spawn, type ChildProcess } from 'node:child_process'
 
 import path from 'node:path'
 
@@ -21,6 +21,8 @@ import {
   getXiangyuRoot,
   isXiangyuEnabled,
 } from '../config/env'
+
+import { ensurePrintAgentPortFree } from '../lib/kill-port'
 
 
 
@@ -64,6 +66,25 @@ function printAgentPython(): string {
 
   return 'python'
 
+}
+
+function ensurePrintAgentVenv(): void {
+  if (process.platform !== 'win32') return
+  const dir = printAgentDir()
+  const venvPy = path.join(dir, '.venv', 'Scripts', 'python.exe')
+  const req = path.join(dir, 'requirements.txt')
+  if (fs.existsSync(venvPy) || !fs.existsSync(req)) return
+  console.log('[process-manager] print-agent 虚拟环境不存在，正在创建并安装依赖…')
+  try {
+    execSync('python -m venv .venv', { cwd: dir, stdio: 'inherit' })
+    execSync('.venv\\Scripts\\pip.exe install -r requirements.txt -q', {
+      cwd: dir,
+      stdio: 'inherit',
+      shell: process.platform === 'win32' ? 'cmd.exe' : undefined,
+    })
+  } catch (err) {
+    console.warn('[process-manager] print-agent 依赖安装失败:', err)
+  }
 }
 
 
@@ -231,7 +252,8 @@ export function startPrintAgentProcess(): void {
 
   if (printAgentProc) return
 
-
+  ensurePrintAgentVenv()
+  ensurePrintAgentPortFree()
 
   const port = Number(process.env.PRINT_AGENT_PORT || 4729)
 

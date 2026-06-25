@@ -14,6 +14,10 @@ const path = require('node:path')
 
 const ROOT = path.resolve(__dirname, '..')
 
+const LOG_DIR = path.join(ROOT, 'data', 'logs')
+
+const LOG_FILE = path.join(LOG_DIR, 'supervisor.log')
+
 const RESTART_MS = 3000
 
 const SERVER_DIR = path.join(ROOT, 'apps', 'server')
@@ -35,11 +39,13 @@ let shuttingDown = false
 
 
 function log(msg) {
-
   const ts = new Date().toLocaleTimeString('zh-CN', { hour12: false })
-
-  console.log(`[${ts}] ${msg}`)
-
+  const line = `[${ts}] ${msg}`
+  console.log(line)
+  try {
+    fs.mkdirSync(LOG_DIR, { recursive: true })
+    fs.appendFileSync(LOG_FILE, `${new Date().toISOString()} ${msg}\n`, 'utf8')
+  } catch { /* ignore */ }
 }
 
 

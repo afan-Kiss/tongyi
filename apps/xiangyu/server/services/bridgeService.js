@@ -208,6 +208,33 @@ async function sendVideoToBuyer(payload) {
   return sendMediaToBuyer({ ...payload, type: 'send_video' });
 }
 
+async function fetchArkTicketFromBridge({ serviceUrl, shopTitle = '', sellerUserId = '' }) {
+  const config = loadConfig();
+  const bridgeUrl = String(config.bridge.url || '').trim();
+  if (!bridgeUrl) return '';
+
+  const base = bridgeUrl.replace(/\/send\/?$/, '');
+  const params = new URLSearchParams({
+    serviceUrl: String(serviceUrl || ''),
+    shopTitle: String(shopTitle || ''),
+    sellerUserId: String(sellerUserId || ''),
+  });
+  const ticketUrl = `${base}/ark-ticket?${params.toString()}`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Number(config.bridge.timeoutMs || 20000));
+  try {
+    const res = await fetch(ticketUrl, { method: 'GET', signal: controller.signal });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.ticket) return '';
+    return String(data.ticket);
+  } catch {
+    return '';
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function checkBridgeHealth() {
   const config = loadConfig();
   const bridgeUrl = String(config.bridge.url || '').trim();
@@ -239,5 +266,6 @@ module.exports = {
   sendTextToBuyer,
   sendMediaToBuyer,
   openSessionWithBuyer,
+  fetchArkTicketFromBridge,
   checkBridgeHealth,
 };

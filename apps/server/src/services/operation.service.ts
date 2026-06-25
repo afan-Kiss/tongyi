@@ -27,14 +27,34 @@ import {
 import { braceletRepo, operationLogRepo } from '../repositories/bracelet.repository'
 import { detailRepo } from '../repositories/detail.repository'
 import { prisma } from '../lib/prisma'
+import { parseExcelSyncMsg, serializeExcelSyncMsg } from '../domain/excel-sync-msg'
 import { certIndexEntryToRowData, findCertIndexEntry } from './excel-cert-index.service'
 import { ensureDetailRecord } from './detail.service'
+import { healBraceletAttachments } from './bracelet-meta-restore.service'
+import { presentBracelet } from '../utils/media-presenter'
 import type { ExcelSyncResult, InboundDto, NewBraceletDto, OperationResult, OutboundDto } from '../types/api.types'
 
 type Fail = { ok: false; message: string }
 type Ok<T> = { ok: true } & T
 
-const PARTIAL_MSG = '数据库已更新，Excel 未同步，请点击「重试 Excel 同步」'
+const PARTIAL_MSG = '数据库已更新，Excel 同步失败，系统正在自动重试；若仍未成功可点「重试 Excel 同步」'
+
+const EXCEL_SYNC_RETRIES = 3
+const EXCEL_SYNC_RETRY_DELAY_MS = 800
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function syncExcelWithRetry(syncFn: () => Promise<ExcelSyncResult>): Promise<ExcelSyncResult> {
+  let last: ExcelSyncResult = { ok: false, message: 'Excel 同步失败' }
+  for (let attempt = 0; attempt < EXCEL_SYNC_RETRIES; attempt++) {
+    last = await syncFn()
+    if (last.ok || !isExcelBridgeEnabled()) return last
+    if (attempt < EXCEL_SYNC_RETRIES - 1) await sleep(EXCEL_SYNC_RETRY_DELAY_MS)
+  }
+  return last
+}
 
 function wrapOperationResult(
   bracelet: Record<string, unknown>,
@@ -51,17 +71,19 @@ function wrapOperationResult(
   }
 }
 
-async function recordExcelSync(logId: string, excelSync: ExcelSyncResult) {
-  await operationLogRepo.updateExcelSync(
-    logId,
-    excelSync.ok,
-    JSON.stringify({
-      message: excelSync.message,
-      row: excelSync.row,
-      sheet: excelSync.sheet,
-      hasSnapshot: !!excelSync.snapshotBase64,
-    }),
-  )
+async function fullBraceletResult(certNo: string, logId: string, excelSync?: ExcelSyncResult) {
+  await healBraceletAttachments(certNo)
+  const full = await braceletRepo.findByCert(certNo)
+  const bracelet = full ? presentBracelet(full) : { certNo: normalizeCertNo(certNo) }
+  return { ok: true as const, ...wrapOperationResult(bracelet as Record<string, unknown>, logId, excelSync) }
+}
+
+async function recordExcelSync(logId: string, excelSync: ExcelSyncResult, certNo?: string) {
+  await operationLogRepo.updateExcelSync(logId, excelSync.ok, serializeExcelSyncMsg(excelSync))
+  if (excelSync.ok && certNo) {
+    const { persistCurrentSnapshotFromSync } = await import('./excel-snapshot-cache.service')
+    persistCurrentSnapshotFromSync(certNo, excelSync)
+  }
 }
 
 export async function executeOutbound(input: OutboundDto): Promise<Ok<OperationResult> | Fail> {
@@ -107,18 +129,20 @@ export async function executeOutbound(input: OutboundDto): Promise<Ok<OperationR
     return { updated: upd, log: lg }
   })
 
-  const excelSync = await syncOutboundToExcel(
-    toExcelOutboundPayload(bracelet, {
-      price: priceVal!,
-      remark: input.remarkText || DEFAULT_OUTBOUND_REMARK,
-      fullRemark: newRemark ?? bracelet.remark ?? '',
-      salesPerson: input.salesPerson || '',
-      salesChannel: input.salesChannel || '',
-      orderNo: input.orderNo || '',
-    }),
+  const excelSync = await syncExcelWithRetry(() =>
+    syncOutboundToExcel(
+      toExcelOutboundPayload(bracelet, {
+        price: priceVal!,
+        remark: input.remarkText || DEFAULT_OUTBOUND_REMARK,
+        fullRemark: newRemark ?? bracelet.remark ?? '',
+        salesPerson: input.salesPerson || '',
+        salesChannel: input.salesChannel || '',
+        orderNo: input.orderNo || '',
+      }),
+    ),
   )
-  await recordExcelSync(log.id, excelSync)
-  return { ok: true, ...wrapOperationResult(updated, log.id, excelSync) }
+  await recordExcelSync(log.id, excelSync, certNo)
+  return fullBraceletResult(certNo, log.id, excelSync)
 }
 
 export async function executeInbound(input: InboundDto): Promise<Ok<OperationResult> | Fail> {
@@ -137,7 +161,11 @@ export async function executeInbound(input: InboundDto): Promise<Ok<OperationRes
   }
 
   const today = todayStr()
-  const newRemark = computeInboundRemark(bracelet.remark, input.remarkText, today)
+  const userRemark = (input.remarkText || '').trim()
+  const recoveryOnly = !userRemark
+  const newRemark = recoveryOnly
+    ? (bracelet.remark || '')
+    : computeInboundRemark(bracelet.remark, userRemark, today)
   const snapshot = { ...bracelet }
 
   const { updated, log } = await prisma.$transaction(async (tx) => {
@@ -145,10 +173,13 @@ export async function executeInbound(input: InboundDto): Promise<Ok<OperationRes
       where: { id: bracelet.id },
       data: {
         qty: 1,
-        returnDate: today,
+        returnDate: recoveryOnly ? bracelet.returnDate : today,
         remark: newRemark,
         soldDate: null,
         actualPrice: null,
+        orderNo: null,
+        salesPerson: null,
+        salesChannel: null,
       },
     })
     const lg = await tx.operationLog.create({
@@ -163,11 +194,11 @@ export async function executeInbound(input: InboundDto): Promise<Ok<OperationRes
     return { updated: upd, log: lg }
   })
 
-  const excelSync = await syncInboundToExcel(
-    toExcelInboundPayload(bracelet, input.remarkText || '', newRemark),
+  const excelSync = await syncExcelWithRetry(() =>
+    syncInboundToExcel(toExcelInboundPayload(bracelet, userRemark, newRemark, { recoveryOnly })),
   )
-  await recordExcelSync(log.id, excelSync)
-  return { ok: true, ...wrapOperationResult(updated, log.id, excelSync) }
+  await recordExcelSync(log.id, excelSync, certNo)
+  return fullBraceletResult(certNo, log.id, excelSync)
 }
 
 export async function executeNewInbound(input: NewBraceletDto): Promise<Ok<OperationResult> | Fail> {
@@ -201,8 +232,8 @@ export async function executeNewInbound(input: NewBraceletDto): Promise<Ok<Opera
     resultJson: JSON.stringify(bracelet),
   })
 
-  const excelSync = await syncNewInboundToExcel(toExcelNewInboundPayload(bracelet))
-  await recordExcelSync(log.id, excelSync)
+  const excelSync = await syncExcelWithRetry(() => syncNewInboundToExcel(toExcelNewInboundPayload(bracelet)))
+  await recordExcelSync(log.id, excelSync, certNo)
 
   if (excelSync.ok && excelSync.row) {
     await braceletRepo.update(bracelet.id, {
@@ -211,7 +242,7 @@ export async function executeNewInbound(input: NewBraceletDto): Promise<Ok<Opera
     })
   }
 
-  return { ok: true, ...wrapOperationResult(bracelet, log.id, excelSync) }
+  return fullBraceletResult(certNo, log.id, excelSync)
 }
 
 /** 从内存编号索引预填一行（启动预热后无需再读 Excel COM） */
@@ -295,7 +326,7 @@ export async function executeRegisterBracelet(input: NewBraceletDto): Promise<Ok
   }
 
   const full = await braceletRepo.findByCert(certNo)
-  return { ok: true, ...wrapOperationResult(full || bracelet, log.id, excelSync) }
+  return fullBraceletResult(certNo, log.id, excelSync)
 }
 
 /** 从操作日志重放 Excel 同步（数据库已成功、Excel 待补齐时使用） */
@@ -323,8 +354,12 @@ export async function executeRetryExcel(logId: string): Promise<Ok<OperationResu
       }),
     )
   } else if (log.opType === 'inbound') {
+    const snapshot = JSON.parse(log.snapshotJson) as { returnDate?: string | null; remark?: string | null }
+    const recoveryOnly =
+      (bracelet.returnDate || null) === (snapshot.returnDate || null) &&
+      (bracelet.remark || '') === (snapshot.remark || '')
     excelSync = await syncInboundToExcel(
-      toExcelInboundPayload(bracelet, '', bracelet.remark ?? ''),
+      toExcelInboundPayload(bracelet, '', bracelet.remark ?? '', { recoveryOnly }),
     )
   } else if (log.opType === 'new_inbound') {
     excelSync = await syncNewInboundToExcel(toExcelNewInboundPayload(bracelet))
@@ -338,12 +373,12 @@ export async function executeRetryExcel(logId: string): Promise<Ok<OperationResu
     return { ok: false, message: '不支持的操作类型' }
   }
 
-  await recordExcelSync(log.id, excelSync)
+  await recordExcelSync(log.id, excelSync, log.certNo)
   if (!excelSync.ok) {
     return { ok: false, message: excelSync.message }
   }
 
-  return { ok: true, ...wrapOperationResult(bracelet, log.id, excelSync) }
+  return fullBraceletResult(log.certNo, log.id, excelSync)
 }
 
 export async function executeRevert(logId: string): Promise<Ok<{ message: string; excelSync?: ExcelSyncResult }> | Fail> {
@@ -389,6 +424,118 @@ export async function executeRevert(logId: string): Promise<Ok<{ message: string
   return { ok: true, message: `已撤销${excelNote}`, excelSync }
 }
 
-export async function getExcelSnapshot(certNo: string): Promise<ExcelSyncResult> {
-  return fetchExcelRowSnapshot(certNo)
+export async function getExcelSnapshot(
+  certNo: string,
+  opts?: { refresh?: boolean },
+): Promise<ExcelSyncResult> {
+  const code = normalizeCertNo(certNo)
+  const refresh = opts?.refresh ?? false
+
+  const log = await operationLogRepo.findLatestExcelSyncByCert(code)
+  const fromLog = log?.excelSyncMsg ? parseExcelSyncMsg(log.excelSyncMsg) : null
+  const hasOpSnapshots = !!(fromLog?.beforeSnapshotBase64 || fromLog?.afterSnapshotBase64)
+
+  if (hasOpSnapshots && fromLog) {
+    return {
+      ok: true,
+      message: fromLog.message || '出入库改前/改后截图（已本地留底）',
+      beforeSnapshotBase64: fromLog.beforeSnapshotBase64,
+      afterSnapshotBase64: fromLog.afterSnapshotBase64,
+      snapshotBase64: fromLog.afterSnapshotBase64 ?? fromLog.snapshotBase64,
+      syncedAt: fromLog.syncedAt,
+      row: fromLog.row,
+      sheet: fromLog.sheet,
+    }
+  }
+
+  const { loadCurrentSnapshotCache, saveCurrentSnapshotCache } = await import('./excel-snapshot-cache.service')
+
+  if (!refresh) {
+    const cached = loadCurrentSnapshotCache(code)
+    if (cached) {
+      return {
+        ok: true,
+        message: '已载入本地 Excel 现状截图',
+        currentSnapshotBase64: cached.base64,
+        currentSyncedAt: cached.capturedAt,
+        currentFromCache: true,
+        row: cached.row,
+        sheet: cached.sheet,
+      }
+    }
+  }
+
+  const live = await fetchExcelRowSnapshot(code)
+  const currentB64 = live.afterSnapshotBase64 ?? live.snapshotBase64
+
+  if (live.ok && currentB64) {
+    await saveCurrentSnapshotCache(code, {
+      base64: currentB64,
+      row: live.row,
+      sheet: live.sheet,
+      capturedAt: live.syncedAt || new Date().toISOString(),
+      message: live.message,
+    })
+    return {
+      ok: true,
+      message: refresh ? '已重新截取 Excel 现状' : live.message || 'Excel 现状截图',
+      currentSnapshotBase64: currentB64,
+      currentSyncedAt: live.syncedAt,
+      row: live.row,
+      sheet: live.sheet,
+    }
+  }
+
+  if (!refresh) {
+    const cached = loadCurrentSnapshotCache(code)
+    if (cached) {
+      return {
+        ok: true,
+        message: '实时截取失败，已显示本地缓存',
+        currentSnapshotBase64: cached.base64,
+        currentSyncedAt: cached.capturedAt,
+        currentFromCache: true,
+        currentSnapshotError: live.message,
+        row: cached.row,
+        sheet: cached.sheet,
+      }
+    }
+  }
+
+  return {
+    ok: false,
+    message: live.message || '暂无 Excel 截图（请确认 Excel 已打开且编号存在）',
+    currentSnapshotError: live.message,
+  }
+}
+
+/** 后台补齐未成功的 Excel 同步（Excel 桥接偶发失败时自动重试） */
+export function schedulePendingExcelSyncRetry(): void {
+  if (!isExcelBridgeEnabled()) return
+
+  let running = false
+  const tick = async () => {
+    if (running) return
+    running = true
+    try {
+      const pending = await operationLogRepo.findPendingExcelSync(15)
+      for (const log of pending) {
+        const result = await executeRetryExcel(log.id)
+        if (result.ok && result.excelSync?.ok) {
+          console.log(`[excel-sync] 自动补齐成功 ${log.certNo} (${log.opType})`)
+        }
+      }
+    } catch (err) {
+      console.warn('[excel-sync] 自动重试异常:', err instanceof Error ? err.message : err)
+    } finally {
+      running = false
+    }
+  }
+
+  setTimeout(() => {
+    void tick()
+  }, 20_000)
+  setInterval(() => {
+    void tick()
+  }, 30_000).unref()
 }

@@ -71,24 +71,80 @@ function extractNickName(pkg) {
   return '';
 }
 
-function resolveOrderNo(pkg) {
-  const keys = [
-    'orderSn',
-    'order_sn',
-    'orderNo',
-    'order_no',
-    'orderIdStr',
-    'fulfillmentOrderNo',
-    'packageOrderNo',
-    'orderId',
-    'packageId',
-    'id',
-  ];
-  for (const key of keys) {
-    const v = str(pkg[key]);
-    if (v) return v;
+function orderNoAsStr(val) {
+  if (val == null || val === '') return '';
+  if (typeof val === 'boolean') return '';
+  if (typeof val === 'number') {
+    if (!Number.isFinite(val)) return '';
+    if (Number.isInteger(val)) return String(val);
+    return Math.abs(val) > 1e15 ? val.toFixed(0) : String(val);
+  }
+  return String(val).trim();
+}
+
+const P_ORDER_PATTERN = /^P\d{10,}$/i;
+
+const ORDER_NO_FIELD_PRIORITY = [
+  'orderSn',
+  'order_sn',
+  'orderNo',
+  'order_no',
+  'orderIdStr',
+  'order_id_str',
+  'fulfillmentOrderNo',
+  'fulfillment_order_no',
+  'packageOrderNo',
+  'package_order_no',
+  'packageId',
+  'package_id',
+  'orderId',
+  'order_id',
+  'id',
+];
+
+function scanPOrderNoInObj(obj, depth = 0) {
+  if (depth > 5 || obj == null) return '';
+  if (typeof obj === 'string') {
+    const s = obj.trim();
+    return P_ORDER_PATTERN.test(s) ? s : '';
+  }
+  if (Array.isArray(obj)) {
+    for (const item of obj.slice(0, 30)) {
+      const found = scanPOrderNoInObj(item, depth + 1);
+      if (found) return found;
+    }
+    return '';
+  }
+  if (typeof obj === 'object') {
+    for (const v of Object.values(obj)) {
+      const found = scanPOrderNoInObj(v, depth + 1);
+      if (found) return found;
+    }
   }
   return '';
+}
+
+/** 解析完整小红书订单号（优先 P 开头 packageId / orderSn，避免截断的 orderId） */
+function resolveOrderNo(pkg) {
+  let chosen = '';
+  for (const key of ORDER_NO_FIELD_PRIORITY) {
+    const v = orderNoAsStr(pkg[key]);
+    if (!v) continue;
+    if (!chosen) chosen = v;
+    if (P_ORDER_PATTERN.test(v)) {
+      chosen = v;
+      break;
+    }
+  }
+
+  const pInRaw = scanPOrderNoInObj(pkg);
+  if (pInRaw && (!chosen || !/^P/i.test(chosen))) {
+    chosen = pInRaw;
+  } else if (chosen && !/^P/i.test(chosen) && pInRaw && chosen !== pInRaw) {
+    chosen = pInRaw;
+  }
+
+  return chosen;
 }
 
 function isExcludedPackage(pkg) {
@@ -125,6 +181,48 @@ function firstProductImage(pkg) {
   return '';
 }
 
+function toAmount(val, fieldName = '') {
+  if (val == null || val === '') return 0;
+  const n = Number(String(val).replace(/,/g, ''));
+  if (Number.isNaN(n)) return 0;
+  const fn = (fieldName || '').toLowerCase().replace(/_/g, '');
+  if (fn.includes('cent') || fn.includes('fen')) return n / 100;
+  return n;
+}
+
+function extractRedDiscount(pkg) {
+  for (const key of [
+    'redDiscountAmount',
+    'red_discount_amount',
+    'redDiscount',
+    'platformDiscountAmount',
+    'discountAmount',
+  ]) {
+    if (pkg[key] != null && pkg[key] !== '') return toAmount(pkg[key], key);
+  }
+  return 0;
+}
+
+function totalProductPrice(pkg) {
+  const skus = Array.isArray(pkg.skus) ? pkg.skus : [];
+  let total = 0;
+  for (const sku of skus) {
+    const scskus = Array.isArray(sku.scskus) ? sku.scskus : [];
+    if (scskus.length) {
+      for (const sc of scskus) {
+        const price = toAmount(sc.soldPrice ?? sc.price, 'soldPrice');
+        const qty = Number(sc.quantity || 1) || 1;
+        total += price * qty;
+      }
+    } else {
+      const price = toAmount(sku.skuSoldPrice ?? sku.soldPrice, 'skuSoldPrice');
+      const qty = Number(sku.skuQuantity || 1) || 1;
+      total += price * qty;
+    }
+  }
+  return total;
+}
+
 function formatAmount(val) {
   const n = Number(val);
   if (!n) return '';
@@ -142,29 +240,45 @@ function normalizePackage(pkg, shopTitle = '') {
   if (!pkg || isExcludedPackage(pkg)) return null;
 
   const orderNo = resolveOrderNo(pkg);
-  const orderId = str(pkg.orderId) || str(pkg.packageId) || orderNo;
-  if (!orderNo && !orderId) return null;
+  const packageId = orderNoAsStr(pkg.packageId) || orderNoAsStr(pkg.package_id);
+  const internalId = orderNoAsStr(pkg.orderId) || orderNoAsStr(pkg.order_id) || packageId;
+  if (!orderNo && !internalId) return null;
 
   const nickName = extractNickName(pkg);
   const buyerUserId = extractBuyerUserId(pkg);
   const sellerId = extractSellerId(pkg);
   const receiverUid = buildReceiverAppUid(buyerUserId);
-  const orderPaid = Number(pkg.actualPaid || pkg.totalOrderAmount || 0);
+  const orderPaidNum = toAmount(pkg.actualPaid ?? pkg.totalOrderAmount, 'actualPaid');
+  const productPriceNum = totalProductPrice(pkg);
+  const shippingFeeNum = toAmount(pkg.shippingFee, 'shippingFee');
+  const redDiscountNum = extractRedDiscount(pkg);
 
   return {
-    orderId: orderNo || orderId,
-    orderNo: orderNo || orderId,
-    packageId: str(pkg.packageId),
+    orderId: internalId || orderNo,
+    orderNo: orderNo || internalId,
+    packageId,
     buyerNick: nickName || '买家',
     buyerName: str(pkg.userInfo?.name) || nickName,
     buyerUserId,
     sellerId,
     productTitle: firstProductTitle(pkg),
-    amount: formatAmount(orderPaid),
+    amount: formatAmount(orderPaidNum),
+    orderPaid: orderPaidNum,
+    orderPaidNum,
+    productPrice: productPriceNum,
+    productPriceNum,
+    shippingFee: shippingFeeNum,
+    shippingFeeNum,
+    redDiscountAmount: redDiscountNum,
+    redDiscountNum,
     status: str(pkg.statusDesc || pkg.status || '待处理'),
+    statusDesc: str(pkg.statusDesc || pkg.status || ''),
+    afterSaleStatus: str(pkg.afterSaleStatus || ''),
+    afterSaleStatusDesc: str(pkg.afterSaleStatusDesc || ''),
     createdAt: parseTs(pkg.orderedAt || pkg.paidAt || pkg.createdAt),
     imageUrl: firstProductImage(pkg),
     shopTitle,
+    sourceAccountName: shopTitle,
     appCid: '',
     receiverAppUids: receiverUid ? [receiverUid] : [],
     raw: pkg,

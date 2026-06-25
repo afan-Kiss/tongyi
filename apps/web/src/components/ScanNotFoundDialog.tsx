@@ -4,7 +4,6 @@ import { createPortal } from 'react-dom'
 interface Props {
   open: boolean
   scanned: string
-  mode: 'outbound' | 'inbound' | 'query'
   onClose: () => void
   onRegister?: () => void
 }
@@ -12,7 +11,6 @@ interface Props {
 export const ScanNotFoundDialog: React.FC<Props> = ({
   open,
   scanned,
-  mode,
   onClose,
   onRegister,
 }) => {
@@ -36,10 +34,10 @@ export const ScanNotFoundDialog: React.FC<Props> = ({
       >
         <h3 id="scan-not-found-title" className="text-lg font-semibold text-slate-900">未找到记录</h3>
         <p className="mt-2 text-sm text-slate-600">
-          扫码内容「<span className="font-mono font-medium text-slate-800">{scanned}</span>」在库存中不存在。
+          扫码内容「<span className="font-mono font-medium text-slate-800">{scanned}</span>」在系统库存与 Excel 缓存中均未找到。
         </p>
         <p className="mt-1 text-xs text-slate-500">
-          请确认吊牌条形码已打印入库，或尝试扫描编号。
+          请确认编号正确、Excel 已打开且编号索引已加载，或尝试扫描吊牌条形码。
         </p>
         <div className="mt-4 flex gap-2">
           <button
@@ -49,7 +47,7 @@ export const ScanNotFoundDialog: React.FC<Props> = ({
           >
             关闭
           </button>
-          {mode === 'inbound' && onRegister && (
+          {onRegister && (
             <button
               type="button"
               onClick={onRegister}

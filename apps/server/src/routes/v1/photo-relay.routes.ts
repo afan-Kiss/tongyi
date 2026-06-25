@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import { buildMobileCameraUrl, getMobileCameraNetworkInfo } from '../../lib/mobile-camera-url'
 import {
   addPhotoRelayShot,
   createPhotoRelaySession,
@@ -9,13 +10,35 @@ import {
   setPhotoRelayActiveCert,
   updatePhotoRelayFrame,
 } from '../../services/photo-relay.service'
+import { getSettings } from '../../services/settings.service'
 import { sendErr, sendOk } from '../../utils/api-response'
+
+/** 预览帧 base64 上限（内网约 640px JPEG，留足余量） */
+const RELAY_FRAME_MAX_CHARS = 8 * 1024 * 1024
+/** 正式拍照 base64 上限 */
+const RELAY_PHOTO_MAX_CHARS = 12 * 1024 * 1024
 
 export const photoRelayRouter = Router()
 
-photoRelayRouter.post('/station', (req, res) => {
+photoRelayRouter.get('/mobile-info', (_req, res) => {
+  sendOk(res, getMobileCameraNetworkInfo())
+})
+
+photoRelayRouter.post('/station', async (req, res) => {
   const result = getOrCreateStationSession(String(req.body?.stationId || ''))
-  sendOk(res, { sessionId: result.sessionId, certNo: result.certNo, created: result.created })
+  let publicUrl = ''
+  try {
+    publicUrl = (await getSettings()).publicUrl
+  } catch {
+    /* 设置读取失败时仍返回内网 URL */
+  }
+  const mobileUrl = buildMobileCameraUrl(result.sessionId, publicUrl)
+  sendOk(res, {
+    sessionId: result.sessionId,
+    certNo: result.certNo,
+    created: result.created,
+    mobileUrl,
+  })
 })
 
 photoRelayRouter.post('/', (req, res) => {
@@ -69,7 +92,7 @@ photoRelayRouter.post('/:sessionId/heartbeat', (req, res) => {
 photoRelayRouter.post('/:sessionId/frame', (req, res) => {
   const frame = String(req.body?.frame || '')
   if (!frame.startsWith('data:image/')) return sendErr(res, '无效的画面数据')
-  if (frame.length > 600_000) return sendErr(res, '画面数据过大')
+  if (frame.length > RELAY_FRAME_MAX_CHARS) return sendErr(res, '画面数据过大')
   const result = updatePhotoRelayFrame(req.params.sessionId, frame)
   if (!result.ok) return sendErr(res, result.message, 404)
   sendOk(res, { ok: true })
@@ -78,7 +101,7 @@ photoRelayRouter.post('/:sessionId/frame', (req, res) => {
 photoRelayRouter.post('/:sessionId/shoot', (req, res) => {
   const photo = String(req.body?.photo || '')
   if (!photo.startsWith('data:image/')) return sendErr(res, '无效的照片数据')
-  if (photo.length > 4_000_000) return sendErr(res, '照片数据过大')
+  if (photo.length > RELAY_PHOTO_MAX_CHARS) return sendErr(res, '照片数据过大')
   const result = addPhotoRelayShot(req.params.sessionId, photo)
   if (!result.ok) return sendErr(res, result.message, 404)
   sendOk(res, { seq: result.seq })

@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1" />
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="format-detection" content="telephone=no" />
+    <title>手机拍照</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; background: #0f172a; color: #fff; font-family: system-ui, -apple-system, sans-serif; }
+      .page { min-height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+      header { padding: 12px 16px; text-align: center; flex-shrink: 0; }
+      header .sub { font-size: 12px; color: #94a3b8; }
+      header .cert { margin-top: 4px; font-size: 14px; font-weight: 600; letter-spacing: 0.05em; }
+      header .cert.wait { color: #fcd34d; }
+      .hint { margin: 0 16px 8px; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(251, 191, 36, 0.3); background: rgba(245, 158, 11, 0.12); color: #fde68a; font-size: 11px; line-height: 1.5; display: none; }
+      .wechat-hint { margin: 0 16px 8px; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(56, 189, 248, 0.35); background: rgba(14, 165, 233, 0.12); color: #bae6fd; font-size: 11px; line-height: 1.5; display: none; }
+      .video-wrap { position: relative; margin: 0 16px; flex: 1; min-height: 0; border-radius: 16px; overflow: hidden; background: #000; }
+      video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 0.2s; }
+      video.ready { opacity: 1; }
+      .overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 16px; text-align: center; color: #94a3b8; }
+      .overlay.hidden { display: none; }
+      .badge { position: absolute; right: 12px; top: 12px; padding: 4px 10px; border-radius: 999px; background: rgba(0,0,0,0.5); font-size: 11px; display: none; }
+      .badge.show { display: block; }
+      .flash { pointer-events: none; position: absolute; inset: 0; background: #fff; opacity: 0; }
+      .flash.on { animation: flash 0.18s ease-out; }
+      footer { padding: 16px 16px max(16px, env(safe-area-inset-bottom)); flex-shrink: 0; }
+      .shoot { width: 100%; border: 0; border-radius: 999px; padding: 14px; font-size: 16px; font-weight: 600; color: #fff; background: linear-gradient(90deg, #ff2442, #ff6b81); }
+      .shoot:disabled { opacity: 0.5; }
+      .reopen { margin-top: 12px; border: 0; border-radius: 999px; padding: 10px 20px; background: rgba(255,255,255,0.1); color: #fff; font-size: 14px; }
+      .status { margin-top: 10px; text-align: center; font-size: 12px; color: #94a3b8; min-height: 18px; }
+      @keyframes flash { from { opacity: 0.9; } to { opacity: 0; } }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <header>
+        <p class="sub">手机拍照 · 保持此页开启，换编号不用重扫</p>
+        <p id="certLabel" class="cert wait">正在连接…</p>
+      </header>
+      <div id="httpsHint" class="hint"></div>
+      <div id="wechatHint" class="wechat-hint"></div>
+      <div class="video-wrap">
+        <video id="video" autoplay playsinline muted></video>
+        <div id="overlay" class="overlay">
+          <p id="overlayText">正在连接…</p>
+          <button id="reopenBtn" type="button" class="reopen" hidden>重新打开摄像头</button>
+        </div>
+        <span id="liveBadge" class="badge">实时传输中</span>
+        <div id="flash" class="flash"></div>
+      </div>
+      <footer>
+        <button id="shootBtn" type="button" class="shoot" disabled>拍一张</button>
+        <p id="statusText" class="status"></p>
+      </footer>
+    </div>
+    <script>
+      ;(function () {
+        var API = '/api/v1'
+        var params = new URLSearchParams(location.search)
+        var sessionId = (params.get('s') || '').trim()
+        var video = document.getElementById('video')
+        var overlay = document.getElementById('overlay')
+        var overlayText = document.getElementById('overlayText')
+        var reopenBtn = document.getElementById('reopenBtn')
+        var liveBadge = document.getElementById('liveBadge')
+        var flashEl = document.getElementById('flash')
+        var shootBtn = document.getElementById('shootBtn')
+        var statusText = document.getElementById('statusText')
+        var certLabel = document.getElementById('certLabel')
+        var httpsHint = document.getElementById('httpsHint')
+        var wechatHint = document.getElementById('wechatHint')
+
+        var stream = null
+        var certNo = ''
+        var cameraReady = false
+        var connected = false
+        var pushing = false
+        var shooting = false
+        var opening = false
+
+        function isMobile() {
+          return /Android|iPhone|iPad|iPod|Mobile|HarmonyOS/i.test(navigator.userAgent || '')
+        }
+
+        function isWeChat() {
+          return /MicroMessenger/i.test(navigator.userAgent || '')
+        }
+
+        function fetchWithTimeout(url, init, timeoutMs) {
+          timeoutMs = timeoutMs || 20000
+          if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+            return fetch(url, Object.assign({}, init || {}, { signal: AbortSignal.timeout(timeoutMs) }))
+          }
+          if (typeof AbortController === 'undefined') return fetch(url, init)
+          var controller = new AbortController()
+          var timer = setTimeout(function () { controller.abort() }, timeoutMs)
+          return fetch(url, Object.assign({}, init || {}, { signal: controller.signal })).finally(function () {
+            clearTimeout(timer)
+          })
+        }
+
+        function blockedReason() {
+          if (window.isSecureContext) return ''
+          if (isMobile()) {
+            return 'HTTP 下手机无法打开实时摄像头。请扫电脑上的 HTTPS 二维码（内网 4730 端口），首次需在浏览器点「高级」→「继续访问」信任证书。'
+          }
+          return ''
+        }
+
+        function setStatus(text) {
+          statusText.textContent = text || ''
+        }
+
+        function setOverlay(text, showReopen) {
+          overlayText.textContent = text
+          reopenBtn.hidden = !showReopen
+          overlay.classList.toggle('hidden', cameraReady)
+        }
+
+        function setCert(code) {
+          var next = (code || '').trim().toUpperCase()
+          if (next === certNo) return
+          certNo = next
+          if (certNo) {
+            certLabel.textContent = certNo
+            certLabel.classList.remove('wait')
+          } else {
+            certLabel.textContent = '等待电脑填写编号'
+            certLabel.classList.add('wait')
+          }
+          shootBtn.disabled = !cameraReady || shooting || !certNo
+        }
+
+        function api(path, init) {
+          var opts = Object.assign(
+            {
+              headers: { 'Content-Type': 'application/json' },
+            },
+            init || {},
+          )
+          return fetchWithTimeout(API + path, opts, 20000).then(function (res) {
+            return res.json().catch(function () { return {} }).then(function (data) {
+              if (!res.ok || data.ok === false) {
+                throw new Error(data.message || ('请求失败 ' + res.status))
+              }
+              return data
+            })
+          })
+        }
+
+        function stopStream() {
+          if (stream) {
+            stream.getTracks().forEach(function (t) { t.stop() })
+            stream = null
+          }
+          video.srcObject = null
+          video.classList.remove('ready')
+          cameraReady = false
+          liveBadge.classList.remove('show')
+          shootBtn.disabled = true
+        }
+
+        function attachStream(mediaStream) {
+          return new Promise(function (resolve, reject) {
+            video.srcObject = mediaStream
+            video.play().catch(function () {})
+            if (video.readyState >= 2) return resolve()
+            var timer = setTimeout(function () { reject(new Error('摄像头加载超时')) }, 8000)
+            function done() {
+              clearTimeout(timer)
+              resolve()
+            }
+            video.onloadeddata = done
+            video.onloadedmetadata = done
+          })
+        }
+
+        function startCamera() {
+          if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            setOverlay('当前浏览器不支持摄像头', false)
+            return Promise.resolve(false)
+          }
+          stopStream()
+          return navigator.mediaDevices
+            .getUserMedia({
+              video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 1280 } },
+              audio: false,
+            })
+            .then(function (mediaStream) {
+              stream = mediaStream
+              return attachStream(mediaStream)
+            })
+            .then(function () {
+              cameraReady = true
+              video.classList.add('ready')
+              liveBadge.classList.add('show')
+              overlay.classList.add('hidden')
+              shootBtn.disabled = shooting || !certNo
+              return true
+            })
+            .catch(function () {
+              stopStream()
+              var hint = blockedReason() || '无法打开摄像头，请改用 HTTPS 访问'
+              setOverlay(hint, !!window.isSecureContext)
+              setStatus(hint)
+              return false
+            })
+        }
+
+        function captureFrame(maxSide, quality) {
+          if (!video.videoWidth) return null
+          var scale = Math.min(1, maxSide / Math.max(video.videoWidth, video.videoHeight))
+          var w = Math.max(1, Math.round(video.videoWidth * scale))
+          var h = Math.max(1, Math.round(video.videoHeight * scale))
+          var canvas = document.createElement('canvas')
+          canvas.width = w
+          canvas.height = h
+          canvas.getContext('2d').drawImage(video, 0, 0, w, h)
+          return canvas.toDataURL('image/jpeg', quality)
+        }
+
+        function captureFrameFull() {
+          if (!video.videoWidth) return null
+          var canvas = document.createElement('canvas')
+          canvas.width = video.videoWidth
+          canvas.height = video.videoHeight
+          canvas.getContext('2d').drawImage(video, 0, 0, video.videoWidth, video.videoHeight)
+          return canvas.toDataURL('image/jpeg', 1)
+        }
+
+        function capturePhotoNative() {
+          return new Promise(function (resolve) {
+            if (!video.videoWidth) {
+              resolve(null)
+              return
+            }
+            if (typeof ImageCapture !== 'undefined' && stream) {
+              var track = stream.getVideoTracks()[0]
+              if (track) {
+                try {
+                  var ic = new ImageCapture(track)
+                  ic.takePhoto()
+                    .then(function (blob) {
+                      var reader = new FileReader()
+                      reader.onload = function () { resolve(String(reader.result)) }
+                      reader.onerror = function () { resolve(captureFrameFull()) }
+                      reader.readAsDataURL(blob)
+                    })
+                    .catch(function () { resolve(captureFrameFull()) })
+                  return
+                } catch (e) { /* canvas 回退 */ }
+              }
+            }
+            resolve(captureFrameFull())
+          })
+        }
+
+        function isLan() {
+          var host = location.hostname
+          if (host === 'localhost' || host === '127.0.0.1') return true
+          if (/^192\.168\./.test(host) || /^10\./.test(host)) return true
+          if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return true
+          return location.port === '4730'
+        }
+
+        var previewMaxSide = isLan() ? 640 : 480
+        var previewQuality = isLan() ? 0.68 : 0.55
+        var pushMinMs = isLan() ? 50 : 280
+        var pushFps = 0
+        var pushFrameTimestamps = []
+
+        function updatePushFpsBadge() {
+          if (!isLan()) {
+            liveBadge.textContent = '实时传输中'
+            return
+          }
+          liveBadge.textContent = pushFps > 0 ? '上传 ' + pushFps + ' FPS' : '实时传输中'
+        }
+
+        function capturePreviewFrame() {
+          if (!video.videoWidth) return null
+          return captureFrame(previewMaxSide, previewQuality)
+        }
+
+        function pushLoop() {
+          if (!cameraReady || !sessionId) {
+            setTimeout(pushLoop, 200)
+            return
+          }
+          var frame = capturePreviewFrame()
+          if (frame && !pushing) {
+            pushing = true
+            api('/photo-relay/' + encodeURIComponent(sessionId) + '/frame', {
+              method: 'POST',
+              body: JSON.stringify({ frame: frame }),
+            })
+              .catch(function () {})
+              .finally(function () {
+                pushing = false
+                if (isLan()) {
+                  var now = Date.now()
+                  pushFrameTimestamps.push(now)
+                  while (pushFrameTimestamps.length && pushFrameTimestamps[0] < now - 1000) {
+                    pushFrameTimestamps.shift()
+                  }
+                  if (pushFrameTimestamps.length >= 2) {
+                    var span = now - pushFrameTimestamps[0]
+                    pushFps = span > 0 ? Math.round(((pushFrameTimestamps.length - 1) * 1000) / span) : 0
+                  } else {
+                    pushFps = 0
+                  }
+                  updatePushFpsBadge()
+                }
+              })
+          }
+          setTimeout(pushLoop, pushMinMs || 16)
+        }
+
+        function heartbeat() {
+          if (!sessionId) return
+          api('/photo-relay/' + encodeURIComponent(sessionId) + '/heartbeat', {
+            method: 'POST',
+            body: JSON.stringify({ role: 'phone' }),
+          })
+            .then(function (r) { setCert(r.data.certNo) })
+            .catch(function () {})
+        }
+
+        function shoot() {
+          if (!sessionId || shooting || !certNo || !cameraReady) return
+          shooting = true
+          shootBtn.disabled = true
+          shootBtn.textContent = '处理中…'
+          capturePhotoNative().then(function (photo) {
+            if (!photo) {
+              setStatus('拍照失败')
+              shooting = false
+              shootBtn.disabled = !certNo
+              shootBtn.textContent = '拍一张'
+              return
+            }
+            return api('/photo-relay/' + encodeURIComponent(sessionId) + '/shoot', {
+              method: 'POST',
+              body: JSON.stringify({ photo: photo }),
+            })
+          })
+            .then(function (result) {
+              if (!result) return
+              flashEl.classList.add('on')
+              setTimeout(function () { flashEl.classList.remove('on') }, 180)
+              if (navigator.vibrate) navigator.vibrate(20)
+              setStatus('已拍 ' + certNo + '，电脑端同步显示')
+            })
+            .catch(function (e) {
+              setStatus(e.message || String(e))
+            })
+            .finally(function () {
+              shooting = false
+              shootBtn.textContent = certNo ? '拍一张' : '请先填编号'
+              shootBtn.disabled = !cameraReady || !certNo
+            })
+        }
+
+        reopenBtn.addEventListener('click', function () {
+          if (opening) return
+          opening = true
+          reopenBtn.hidden = true
+          setOverlay('正在打开摄像头…', false)
+          startCamera().finally(function () {
+            opening = false
+            if (cameraReady) {
+              setStatus(certNo ? '编号 ' + certNo + ' · 点下方按钮拍照' : '等待电脑填写编号…')
+            } else {
+              reopenBtn.hidden = false
+            }
+          })
+        })
+
+        shootBtn.addEventListener('click', shoot)
+
+        var hint = blockedReason()
+        if (hint) {
+          httpsHint.textContent = hint
+          httpsHint.style.display = 'block'
+        }
+        if (isWeChat()) {
+          wechatHint.innerHTML =
+            '<strong>微信内打不开摄像头？</strong><br>' +
+            '1. 点右上角 ··· →「在浏览器中打开」（选 Safari 或 Chrome）<br>' +
+            '2. 若扫码后空白：复制电脑上的链接，粘贴到手机浏览器地址栏<br>' +
+            '3. 内网 HTTPS 首次需点「高级」→「继续访问」'
+          wechatHint.style.display = 'block'
+        }
+
+        if (!sessionId) {
+          certLabel.textContent = '缺少会话参数'
+          setOverlay('请从电脑端扫码进入（链接需带 ?s= 参数）', false)
+          return
+        }
+
+        var connectTimer = setTimeout(function () {
+          if (connected) return
+          var msg =
+            '连接超时：请确认手机与电脑同一 WiFi；若在微信里扫码，请点 ··· →「在浏览器中打开」；内网 HTTPS 首次需点「高级」→「继续访问」'
+          setOverlay(msg, !!window.isSecureContext)
+          certLabel.textContent = '连接失败'
+        }, 15000)
+
+        api('/photo-relay/' + encodeURIComponent(sessionId))
+          .then(function (r) {
+            connected = true
+            clearTimeout(connectTimer)
+            setCert(r.data.certNo)
+            setOverlay('正在打开摄像头…', false)
+            return startCamera()
+          })
+          .then(function (ok) {
+            if (ok) {
+              setStatus(certNo ? '编号 ' + certNo + ' · 点下方按钮拍照' : '等待电脑填写编号…')
+            }
+          })
+          .catch(function (e) {
+            connected = true
+            clearTimeout(connectTimer)
+            var msg = e && e.message ? e.message : '会话无效或已过期'
+            if (msg.indexOf('abort') >= 0 || msg.indexOf('Abort') >= 0) {
+              msg = '连接超时：请确认手机与电脑同一 WiFi；内网 HTTPS 首次需点「高级」→「继续访问」信任证书'
+            } else if (msg.indexOf('Failed to fetch') >= 0 || msg.indexOf('NetworkError') >= 0) {
+              msg =
+                '无法连接服务器：请确认电脑 4730 端口已启动，且手机与电脑同一 WiFi；若刚扫码，先在浏览器信任 HTTPS 证书'
+            }
+            setOverlay(msg, false)
+            certLabel.textContent = '连接失败'
+          })
+
+        heartbeat()
+        setInterval(heartbeat, 2000)
+        pushLoop()
+        window.addEventListener('beforeunload', stopStream)
+      })()
+    </script>
+  </body>
+</html>

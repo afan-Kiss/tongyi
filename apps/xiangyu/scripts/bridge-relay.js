@@ -10,6 +10,8 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const CDP = require('chrome-remote-interface');
+const { loadConfig } = require('../config');
+const { resolveAccounts } = require('../server/services/xhsAccountImport');
 const {
   getCaptureStatus,
   pickUploadTemplate,
@@ -969,6 +971,23 @@ async function fetchDevtoolsTargets() {
   return res.json();
 }
 
+function listQianfanShopTitlesFromTargets(targets) {
+  const pages = (targets || []).filter((t) => t.type === 'page');
+  const names = [];
+  const seen = new Set();
+  for (const p of pages) {
+    const url = String(p.url || '');
+    const title = String(p.title || '');
+    if (!url.includes('walle.xiaohongshu.com') && !title.includes('工作台')) continue;
+    const shopTitle = extractShopTitleFromPageTitle(title) || title;
+    const key = normalizeShopKey(shopTitle).toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    names.push(normalizeShopKey(shopTitle));
+  }
+  return names;
+}
+
 function pickShopTarget(targets, shopTitle) {
   const key = normalizeShopKey(shopTitle).toLowerCase();
   const pages = targets.filter((t) => t.type === 'page');
@@ -981,7 +1000,7 @@ function pickShopTarget(targets, shopTitle) {
     if (!url.includes('walle.xiaohongshu.com') && !title.includes('工作台')) continue;
 
     let score = 0;
-    if (title.includes(key)) score += 100;
+    if (key && title.includes(key)) score += 100;
     else if (key && [...key].every((ch) => title.includes(ch)) && title.includes('工作台')) score += 60;
     else if (key.length >= 2 && title.includes(key.slice(0, 2)) && title.includes('工作台')) score += 40;
 
@@ -994,9 +1013,271 @@ function pickShopTarget(targets, shopTitle) {
     }
   }
 
+  // 指定店铺时必须达到模糊匹配阈值，禁止 fallback 到任意工作台
+  if (key && (!best || bestScore < 40)) return null;
   if (best) return best;
-  const dashboard = pages.find((p) => String(p.url || '').includes('walle.xiaohongshu.com/cstools/seller/dashboard'));
-  return dashboard || pages[0] || null;
+  if (!key) {
+    const dashboard = pages.find((p) => String(p.url || '').includes('walle.xiaohongshu.com/cstools/seller/dashboard'));
+    return dashboard || null;
+  }
+  return null;
+}
+
+function mergeCookieStrings(...parts) {
+  const map = new Map();
+  for (const raw of parts) {
+    for (const segment of String(raw || '').split(';')) {
+      const s = segment.trim();
+      if (!s || !s.includes('=')) continue;
+      const idx = s.indexOf('=');
+      map.set(s.slice(0, idx).trim(), s.slice(idx + 1).trim());
+    }
+  }
+  return [...map.entries()].map(([k, v]) => `${k}=${v}`).join('; ');
+}
+
+function resolveShopCookie(shopTitle) {
+  try {
+    const { decodeShopQuery, findAccountByShopName } = require('../server/services/arkSsoTicketService');
+    const accounts = resolveAccounts(loadConfig());
+    const shop = decodeShopQuery(shopTitle);
+    const account = findAccountByShopName(accounts, shop);
+    return account?.cookie || '';
+  } catch {
+    return '';
+  }
+}
+
+/** 从已匹配店铺的千帆工作台 localStorage 读取 ST ticket（仅作该店页面兜底） */
+async function readWalleShopTicket(client) {
+  const { Runtime } = client;
+  const result = await Runtime.evaluate({
+    expression: `(function(){
+      try {
+        const ticket = String(localStorage.getItem('ticket') || '').trim();
+        if (ticket.startsWith('ST-')) return ticket;
+        const ui = JSON.parse(localStorage.getItem('userInfo') || '{}');
+        const alt = String(ui.ticket || '').trim();
+        if (alt.startsWith('ST-')) return alt;
+        return '';
+      } catch (e) {
+        return '';
+      }
+    })()`,
+    returnByValue: true,
+  });
+  return String(result?.result?.value || '').trim();
+}
+
+/** 通过隐藏 iframe 走 SSO 跳转，从网络请求中捕获 ticket=ST- */
+async function fetchTicketViaIframeSso(client, serviceUrl) {
+  const { Runtime, Network } = client;
+  await Network.enable();
+  let ticket = '';
+  let done = false;
+
+  const tryExtract = (url) => {
+    if (!url || done) return;
+    const m = String(url).match(/[?&]ticket=(ST-[^&]+)/);
+    if (m) {
+      ticket = decodeURIComponent(m[1]);
+      done = true;
+    }
+  };
+
+  const onRequest = ({ request }) => tryExtract(request?.url);
+  const onResponse = ({ response }) => tryExtract(response?.url);
+  Network.requestWillBeSent(onRequest);
+  Network.responseReceived(onResponse);
+
+  const ssoUrls = [
+    `https://ark.xiaohongshu.com/app-sso/ssologin?service=${encodeURIComponent(serviceUrl)}`,
+    `https://customer.xiaohongshu.com/login?service=${encodeURIComponent(serviceUrl)}`,
+    serviceUrl,
+  ];
+
+  try {
+    for (const ssoUrl of ssoUrls) {
+      if (done) break;
+      await Runtime.evaluate({
+        expression: `(function(){
+          var iframe = document.getElementById('__xiangyuSsoProbe');
+          if (!iframe) {
+            iframe = document.createElement('iframe');
+            iframe.id = '__xiangyuSsoProbe';
+            iframe.style.display = 'none';
+            document.body.appendChild(iframe);
+          }
+          iframe.src = ${JSON.stringify(ssoUrl)};
+        })()`,
+      });
+      await new Promise((r) => setTimeout(r, 2800));
+    }
+  } finally {
+    Network.requestWillBeSent(null);
+    Network.responseReceived(null);
+    await Runtime.evaluate({
+      expression: `(function(){ var f=document.getElementById('__xiangyuSsoProbe'); if(f) f.remove(); })()`,
+    }).catch(() => null);
+  }
+
+  return ticket.startsWith('ST-') ? ticket : '';
+}
+
+/** 在千帆页面用原生 fetch 换票（抓包：service=ark 根域，type=at） */
+async function fetchTicketViaPageNativeFetch(client, serviceUrl) {
+  const { Runtime } = client;
+  const ARK_ROOT = 'https://ark.xiaohongshu.com';
+  const enc = encodeURIComponent(serviceUrl);
+  const encRoot = encodeURIComponent(ARK_ROOT);
+  const bodies = [
+    { service: ARK_ROOT, type: 'at' },
+    { service: encRoot, type: 'at' },
+    { service: ARK_ROOT, type: 'st' },
+    { service: ARK_ROOT, type: 'sso' },
+    { service: enc, type: 'at' },
+    { service: enc, type: 'sso' },
+    { service: enc, type: 'st' },
+    { service: serviceUrl, type: 'sso' },
+    { service: enc, type: 'sso', source: '' },
+    { service: enc, type: 'st', source: '' },
+  ];
+  for (const body of bodies) {
+    const result = await Runtime.evaluate({
+      expression: `(async function(){
+        try {
+          const res = await fetch('https://customer.xiaohongshu.com/api/cas/customer/web/service-ticket', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'content-type': 'application/json;charset=UTF-8', accept: 'application/json' },
+            body: JSON.stringify(${JSON.stringify(body)}),
+          });
+          const data = await res.json();
+          const t = String((data && data.data && data.data.ticket) || (data && data.ticket) || '').trim();
+          return t.startsWith('ST-') ? t : '';
+        } catch (e) {
+          return '';
+        }
+      })()`,
+      awaitPromise: true,
+      returnByValue: true,
+    });
+    const ticket = String(result?.result?.value || '').trim();
+    if (ticket.startsWith('ST-')) return ticket;
+  }
+  return '';
+}
+
+async function fetchTicketViaPageContext(client, serviceUrl, mergedCookie, meta = {}) {
+  const {
+    SERVICE_TICKET_URL,
+    buildTicketRequestBodies,
+    fetchTicketWithCookie,
+  } = require('../server/services/arkSsoTicketService');
+  const { signPostHeaders, parseCookieString } = require('../server/services/xhsSigner');
+  const { Runtime } = client;
+  const xsec = parseCookieString(mergedCookie).xsecappid || 'seller';
+  const bodies = buildTicketRequestBodies(serviceUrl, mergedCookie);
+  const sellerUserId = String(meta.sellerUserId || '').trim();
+  if (sellerUserId) {
+    const enc = encodeURIComponent(serviceUrl);
+    for (const type of ['sso', 'st']) {
+      bodies.unshift({ body: { service: enc, type, sid: parseCookieString(mergedCookie)['customer-sso-sid'], sellerId: sellerUserId, source: '' } });
+    }
+  }
+
+  for (const { body } of bodies.slice(0, 8)) {
+    const headers = {
+      accept: 'application/json, text/plain, */*',
+      'content-type': 'application/json;charset=UTF-8',
+      origin: 'https://walle.xiaohongshu.com',
+      referer: 'https://walle.xiaohongshu.com/cstools/seller/dashboard',
+      ...signPostHeaders(SERVICE_TICKET_URL, body, mergedCookie, xsec),
+    };
+    const result = await Runtime.evaluate({
+      expression: `(async function(){
+        try {
+          const res = await fetch(${JSON.stringify(SERVICE_TICKET_URL)}, {
+            method: 'POST',
+            credentials: 'include',
+            headers: ${JSON.stringify(headers)},
+            body: JSON.stringify(${JSON.stringify(body)}),
+          });
+          const data = await res.json();
+          const t = String((data && data.data && data.data.ticket) || (data && data.ticket) || '').trim();
+          return t.startsWith('ST-') ? t : '';
+        } catch (e) {
+          return '';
+        }
+      })()`,
+      awaitPromise: true,
+      returnByValue: true,
+    });
+    const ticket = String(result?.result?.value || '').trim();
+    if (ticket.startsWith('ST-')) return ticket;
+  }
+
+  return fetchTicketWithCookie(mergedCookie, serviceUrl, meta);
+}
+
+/** 在千帆客服工作台页面上下文中换取 ST ticket（跨店打开 ark 详情） */
+async function handleArkTicket(query) {
+  const serviceUrl = String(query.serviceUrl || query.system || query.url || '').trim();
+  const shopTitle = (() => {
+    const { decodeShopQuery } = require('../server/services/arkSsoTicketService');
+    return decodeShopQuery(query.shopTitle || query.shop || '');
+  })();
+  const sellerUserId = String(query.sellerUserId || query.sellerId || '').trim();
+  if (!serviceUrl) throw new Error('缺少 serviceUrl');
+  if (!shopTitle) throw new Error('缺少 shopTitle');
+
+  const targets = await fetchDevtoolsTargets();
+  const target = pickShopTarget(targets, shopTitle);
+  if (!target?.webSocketDebuggerUrl) {
+    const open = listQianfanShopTitlesFromTargets(targets);
+    const hint = open.length ? `当前已打开：${open.join('、')}` : '请先打开千帆客服工作台并登录对应店铺';
+    throw new Error(`未找到店铺「${shopTitle}」的千帆工作台（${hint}）`);
+  }
+
+  const pageShop = extractShopTitleFromPageTitle(target.title);
+  if (pageShop && !shopMatches(shopTitle, pageShop) && !shopMatches(pageShop, shopTitle)) {
+    throw new Error(`千帆页面店铺「${pageShop}」与目标「${shopTitle}」不一致，请切换到正确店铺工作台后重试`);
+  }
+
+  const client = await CDP({ target: target.webSocketDebuggerUrl });
+  const { Network } = client;
+  await client.Runtime.enable();
+  await Network.enable();
+
+  try {
+    const { cookies: allCookies } = await Network.getAllCookies();
+    const xhsCookies = (allCookies || []).filter((c) => {
+      const domain = String(c.domain || '');
+      return domain.includes('xiaohongshu.com');
+    });
+    const pageCookie = xhsCookies.map((c) => `${c.name}=${c.value}`).join('; ');
+    const shopCookie = resolveShopCookie(shopTitle);
+    const mergedCookie = shopCookie ? mergeCookieStrings(pageCookie, shopCookie) : pageCookie;
+    if (!mergedCookie) throw new Error('千帆页面 Cookie 为空');
+
+    let ticket = await fetchTicketViaPageNativeFetch(client, serviceUrl);
+    let source = 'page-native-at';
+    if (!ticket.startsWith('ST-')) {
+      ticket = await fetchTicketViaPageContext(client, serviceUrl, mergedCookie, { shopTitle, sellerUserId });
+      source = 'page-cas';
+    }
+    if (!ticket.startsWith('ST-')) {
+      throw new Error(`未能为 ${serviceUrl} 换取 SSO ticket，请确认「${shopTitle}」千帆工作台已打开并保持登录`);
+    }
+    console.log('[bridge-relay] ark ticket OK', { shopTitle, source, serviceUrl: serviceUrl.slice(0, 80) });
+    return { ok: true, ticket, source };
+  } finally {
+    try {
+      await client.close();
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 function extractShopTitleFromPageTitle(pageTitle) {
@@ -2361,6 +2642,17 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === 'GET' && url.pathname === '/ark-ticket') {
+      const result = await handleArkTicket({
+        serviceUrl: url.searchParams.get('serviceUrl') || '',
+        shopTitle: url.searchParams.get('shopTitle') || url.searchParams.get('shop') || '',
+        sellerUserId: url.searchParams.get('sellerUserId') || url.searchParams.get('sellerId') || '',
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(result));
+      return;
+    }
+
     if (req.method === 'POST' && url.pathname === '/open-session') {
       const body = await readBody(req);
       const result = await handleOpenSession(body);
@@ -2388,7 +2680,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`[bridge-relay] http://127.0.0.1:${PORT}`);
-  console.log(`[bridge-relay] POST /send  /open-session  GET /health  GET /capture/status`);
+  console.log(`[bridge-relay] POST /send  /open-session  GET /health  GET /ark-ticket  GET /capture/status`);
   console.log(`[bridge-relay] 录制说明: 启动后会自动监听千帆页面；手动发图/视频时终端会输出 [bridge-capture]`);
   console.log(`[bridge-relay] DevTools ${DEVTOOLS_HOST}:${DEVTOOLS_PORT}`);
   console.log(`[bridge-relay] 千帆数据目录 ${QIANFAN_DATA_DIR}`);

@@ -2,17 +2,21 @@ import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef,
 import QRCode from 'qrcode'
 import { Camera, ImagePlus, Smartphone, X } from 'lucide-react'
 import { api } from '@/lib/api'
-import { buildMobileCameraUrl, isSecureLanMobileCameraUrl } from '@/lib/photoRelayUrl'
+import { buildMobileCameraUrl, isHttpMobileCameraUrl, isPublicHttpsMobileCameraUrl, isSecureLanMobileCameraUrl, isSecureMobileCameraUrl } from '@/lib/photoRelayUrl'
 import { clearPhotoRelayStationId, loadPhotoRelayStationId, savePhotoRelayStationId } from '@/lib/photoRelayStation'
 import {
   attachStreamToVideo,
   canUseLiveCamera,
-  captureVideoFrame,
+  capturePhotoFromStream,
   dataUrlToFile,
+  HIGH_RES_VIDEO_CONSTRAINTS,
   isMobileDevice,
   liveCameraBlockedReason,
-  normalizePhotoDataUrl,
+  isLanPhotoRelay,
+  photoRelayPollIntervalMs,
+  photoRelayPushBusyRetryMs,
 } from '@/lib/media'
+import { RelayFpsMeter } from '@/lib/relayStreamFps'
 
 interface Props {
   certNo: string
@@ -21,6 +25,8 @@ interface Props {
   deferUpload?: boolean
   /** 库存编辑：同步时确认 relay 缓冲，避免重开编辑重复拉取旧照片 */
   ackRelayPhotos?: boolean
+  /** 右侧固定栏：预览与二维码上下排列 */
+  stacked?: boolean
   onUploaded?: () => void | Promise<void>
 }
 
@@ -32,7 +38,7 @@ export interface InboundPhotoCaptureHandle {
 type PendingPhoto = { dataUrl: string; name: string }
 
 export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(function InboundPhotoCapture(
-  { certNo, disabled, deferUpload = false, ackRelayPhotos = false, onUploaded },
+  { certNo, disabled, deferUpload = false, ackRelayPhotos = false, stacked = false, onUploaded },
   ref,
 ) {
   const useRelayMode = !isMobileDevice()
@@ -49,8 +55,11 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
   const [mobileUrl, setMobileUrl] = useState('')
   const [qrDataUrl, setQrDataUrl] = useState('')
   const [relayCertReady, setRelayCertReady] = useState(false)
+  const [urlCopied, setUrlCopied] = useState(false)
+  const [relayFps, setRelayFps] = useState(0)
 
   const pendingRef = useRef<PendingPhoto[]>([])
+  const relayFpsMeterRef = useRef(new RelayFpsMeter())
   const prevCodeRef = useRef('')
   const lastPhotoSeqRef = useRef(0)
   const lastFrameAtRef = useRef(0)
@@ -60,6 +69,7 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
   const streamRef = useRef<MediaStream | null>(null)
 
   const code = certNo.trim().toUpperCase()
+  const deferPendingHint = code ? '保存修改时上传' : '登记后自动上传'
   const relaySeqKey = (sid: string, cert: string) => `jade-relay-seq:${sid}:${cert}`
   const cameraBlockedHint = liveCameraBlockedReason()
   const liveCameraOk = canUseLiveCamera()
@@ -86,7 +96,7 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
     setPhotoCameraUi(true)
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' } },
+        video: HIGH_RES_VIDEO_CONSTRAINTS,
         audio: false,
       })
       streamRef.current = stream
@@ -105,28 +115,27 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
     setStatus(
       pendingRef.current.length
         ? deferUpload
-          ? `已拍摄 ${pendingRef.current.length} 张（登记后自动上传）`
+          ? `已拍摄 ${pendingRef.current.length} 张（${deferPendingHint}）`
           : `已选 ${pendingRef.current.length} 张（保存时上传）`
         : '已清空待上传照片',
     )
-  }, [deferUpload])
+  }, [deferUpload, deferPendingHint])
 
   const addPendingPhoto = useCallback(
     async (dataUrl: string, name: string, flashOn = true) => {
-      const normalized = await normalizePhotoDataUrl(dataUrl)
-      pendingRef.current.push({ dataUrl: normalized, name })
-      setThumbs((prev) => [...prev, normalized])
+      pendingRef.current.push({ dataUrl, name })
+      setThumbs((prev) => [...prev, dataUrl])
       if (flashOn) {
         setFlash(true)
         window.setTimeout(() => setFlash(false), 180)
       }
       setStatus(
         deferUpload
-          ? `已拍摄 ${pendingRef.current.length} 张（登记后自动上传）`
+          ? `已拍摄 ${pendingRef.current.length} 张（${deferPendingHint}）`
           : `已收到 ${pendingRef.current.length} 张（保存时上传）`,
       )
     },
-    [deferUpload],
+    [deferUpload, deferPendingHint],
   )
 
   const uploadRelayPhoto = useCallback(
@@ -134,8 +143,7 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
       if (!code || disabled) return
       setUploading(true)
       try {
-        const normalized = await normalizePhotoDataUrl(dataUrl)
-        const file = dataUrlToFile(normalized, name)
+        const file = dataUrlToFile(dataUrl, name)
         await api.uploadMedia(code, file)
         setStatus(`已上传 ${name}`)
         await onUploaded?.()
@@ -148,12 +156,50 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
     [code, disabled, onUploaded],
   )
 
-  const initStationQr = useCallback(async (sid: string) => {
-    const [settings, sysStatus] = await Promise.all([api.getSettings(), api.getStatus()])
-    const url = buildMobileCameraUrl(sid, settings.data, sysStatus.data)
+  const applyMobileUrl = useCallback(async (url: string) => {
     setMobileUrl(url)
-    setQrDataUrl(await QRCode.toDataURL(url, { width: 180, margin: 1 }))
+    setUrlCopied(false)
+    setQrDataUrl(await QRCode.toDataURL(url, { width: 180, margin: 1, errorCorrectionLevel: 'M' }))
   }, [])
+
+  const initStationQr = useCallback(
+    async (sid: string, preferredUrl?: string) => {
+      if (preferredUrl) {
+        await applyMobileUrl(preferredUrl)
+        return
+      }
+      try {
+        const [settings, sysStatus] = await Promise.all([api.getSettings(), api.getStatus()])
+        await applyMobileUrl(buildMobileCameraUrl(sid, settings.data, sysStatus.data))
+      } catch {
+        try {
+          const info = await api.getPhotoRelayMobileInfo()
+          await applyMobileUrl(
+            buildMobileCameraUrl(sid, null, {
+              lanIps: info.data.lanIps,
+              port: info.data.port,
+              mobileHttpsPort: info.data.mobileHttpsPort,
+            }),
+          )
+        } catch {
+          await applyMobileUrl(buildMobileCameraUrl(sid))
+        }
+      }
+    },
+    [applyMobileUrl],
+  )
+
+  const copyMobileUrl = useCallback(async () => {
+    if (!mobileUrl) return
+    try {
+      await navigator.clipboard.writeText(mobileUrl)
+      setUrlCopied(true)
+      window.setTimeout(() => setUrlCopied(false), 2500)
+      setStatus('链接已复制，请到手机 Safari/Chrome 地址栏粘贴打开')
+    } catch {
+      window.prompt('复制此链接到手机浏览器打开：', mobileUrl)
+    }
+  }, [mobileUrl])
 
   const resetStation = useCallback(async () => {
     clearPhotoRelayStationId()
@@ -163,7 +209,7 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
     const relay = await api.getPhotoRelayStation()
     savePhotoRelayStationId(relay.data.sessionId)
     setSessionId(relay.data.sessionId)
-    await initStationQr(relay.data.sessionId)
+    await initStationQr(relay.data.sessionId, relay.data.mobileUrl)
     setStatus('已生成新二维码，请用手机重新扫码')
   }, [initStationQr])
 
@@ -177,7 +223,7 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
         if (cancelled) return
         savePhotoRelayStationId(relay.data.sessionId)
         setSessionId(relay.data.sessionId)
-        await initStationQr(relay.data.sessionId)
+        await initStationQr(relay.data.sessionId, relay.data.mobileUrl)
         setStatus('首次用手机扫码连接，之后换编号无需再扫')
       } catch (e) {
         if (!cancelled) setStatus(e instanceof Error ? e.message : String(e))
@@ -246,6 +292,7 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
         if (r.data.frameAt > lastFrameAtRef.current && r.data.frame) {
           lastFrameAtRef.current = r.data.frameAt
           setRelayFrame(r.data.frame)
+          setRelayFps(relayFpsMeterRef.current.tick())
         }
         setPhoneOnline(r.data.phoneOnline)
         if (r.data.photos.length) {
@@ -268,10 +315,29 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
       }
     }
     void poll()
-    const timer = window.setInterval(poll, 300)
+    const pollMs = photoRelayPollIntervalMs()
+    if (pollMs <= 50) {
+      let timer: number | undefined
+      const loop = () => {
+        if (cancelled) return
+        void poll().finally(() => {
+          if (!cancelled) timer = window.setTimeout(loop, pollMs)
+        })
+      }
+      loop()
+      return () => {
+        cancelled = true
+        if (timer) window.clearTimeout(timer)
+        relayFpsMeterRef.current.reset()
+        setRelayFps(0)
+      }
+    }
+    const timer = window.setInterval(poll, pollMs)
     return () => {
       cancelled = true
       window.clearInterval(timer)
+      relayFpsMeterRef.current.reset()
+      setRelayFps(0)
     }
   }, [sessionId, disabled, useRelayMode, code, deferUpload, relayCertReady, addPendingPhoto, uploadRelayPhoto])
 
@@ -293,10 +359,10 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
     if (navigator.vibrate) navigator.vibrate(20)
   }
 
-  const captureFrameFromPreview = (): string | null => {
+  const captureFrameFromPreview = async (): Promise<string | null> => {
     const video = videoRef.current
     if (!video) return null
-    return captureVideoFrame(video)
+    return capturePhotoFromStream(video, streamRef.current)
   }
 
   const uploadFile = async (file: File, targetCert?: string) => {
@@ -314,7 +380,7 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
       })
       pendingRef.current.push({ dataUrl, name: file.name })
       setThumbs((prev) => [...prev, dataUrl])
-      setStatus(`已拍摄 ${pendingRef.current.length} 张（登记后自动上传）`)
+      setStatus(`已拍摄 ${pendingRef.current.length} 张（${deferPendingHint}）`)
       return
     }
     setUploading(true)
@@ -332,13 +398,12 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
 
   const uploadDataUrl = async (dataUrl: string, index: number, targetCert?: string) => {
     try {
-      const normalized = await normalizePhotoDataUrl(dataUrl)
       setThumbs((prev) => {
         const next = [...prev]
-        next[index] = normalized
+        next[index] = dataUrl
         return next
       })
-      const file = dataUrlToFile(normalized, `${code || 'photo'}-${Date.now()}.jpg`)
+      const file = dataUrlToFile(dataUrl, `${code || 'photo'}-${Date.now()}.jpg`)
       await uploadFile(file, targetCert)
     } catch (e) {
       setStatus(e instanceof Error ? e.message : String(e))
@@ -346,14 +411,14 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
   }
 
   const shootFromPreview = async () => {
-    const dataUrl = captureFrameFromPreview()
+    const dataUrl = await captureFrameFromPreview()
     if (!dataUrl) return false
     flashCapture()
     const index = thumbs.length
     setThumbs((prev) => [...prev, dataUrl])
     if (deferUpload) {
       pendingRef.current.push({ dataUrl, name: `${code}-photo-${Date.now()}.jpg` })
-      setStatus(`已拍摄 ${pendingRef.current.length} 张（登记后自动上传）`)
+      setStatus(`已拍摄 ${pendingRef.current.length} 张（${deferPendingHint}）`)
       return true
     }
     await uploadDataUrl(dataUrl, index)
@@ -389,7 +454,7 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
         setThumbs((prev) => [...prev, dataUrl])
         if (deferUpload) {
           pendingRef.current.push({ dataUrl, name: file.name })
-          setStatus(`已选 ${pendingRef.current.length} 张（登记后自动上传）`)
+          setStatus(`已选 ${pendingRef.current.length} 张（${deferPendingHint}）`)
         } else {
           await uploadDataUrl(dataUrl, index)
         }
@@ -408,8 +473,7 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
       setStatus('正在上传照片…')
       try {
         for (const item of pendingRef.current) {
-          const normalized = await normalizePhotoDataUrl(item.dataUrl)
-          const file = dataUrlToFile(normalized, item.name)
+          const file = dataUrlToFile(item.dataUrl, item.name)
           await api.uploadMedia(uploadCode, file)
         }
         const n = pendingRef.current.length
@@ -433,19 +497,31 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
   }
 
   if (useRelayMode) {
+    const qrPanelClass = stacked
+      ? 'w-full rounded-2xl border border-violet-100 bg-white p-3'
+      : 'flex w-[140px] shrink-0 flex-col items-center rounded-2xl border border-violet-100 bg-white p-3'
     return (
       <div className="space-y-3">
-        <div className="flex gap-3">
-          <div className="relative aspect-[3/4] min-w-0 flex-1 overflow-hidden rounded-2xl bg-slate-900 shadow-sm">
+        <div className={stacked ? 'space-y-3' : 'flex gap-3'}>
+          <div
+            className={`relative min-w-0 overflow-hidden rounded-2xl bg-slate-900 shadow-sm ${
+              stacked ? 'aspect-[4/3] w-full max-h-[min(36vh,280px)]' : 'aspect-[3/4]'
+            }`}
+          >
             {relayFrame ? (
               <img src={relayFrame} alt="手机实时画面" className="h-full w-full object-cover" />
             ) : (
-              <div className="flex h-full min-h-[240px] flex-col items-center justify-center bg-gradient-to-b from-slate-800 to-slate-900 px-4 text-center text-slate-300">
+              <div className={`flex h-full flex-col items-center justify-center bg-gradient-to-b from-slate-800 to-slate-900 px-4 text-center text-slate-300 ${stacked ? '' : 'min-h-[240px]'}`}>
                 <Smartphone size={40} className="mb-3 opacity-80" />
                 <p className="max-w-[240px] text-sm leading-relaxed">
                   {phoneOnline ? '等待手机画面…' : '请用手机扫描二维码（只需扫一次）'}
                 </p>
               </div>
+            )}
+            {relayFrame && isLanPhotoRelay() && (
+              <span className="absolute bottom-3 left-3 rounded-full bg-black/70 px-2.5 py-1 font-mono text-xs font-semibold text-emerald-400">
+                {relayFps} FPS
+              </span>
             )}
             <span
               className={`absolute right-3 top-3 rounded-full px-2.5 py-1 text-[11px] font-medium text-white ${
@@ -464,7 +540,7 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
             )}
           </div>
 
-          <div className="flex w-[140px] shrink-0 flex-col items-center rounded-2xl border border-violet-100 bg-white p-3">
+          <div className={qrPanelClass}>
             {phoneOnline ? (
               <>
                 <p className="text-center text-[10px] font-medium text-emerald-700">手机已连接</p>
@@ -484,20 +560,51 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
                 <p className="text-center text-[10px] font-medium text-slate-600">手机扫码（HTTPS · 一次）</p>
                 {isSecureLanMobileCameraUrl(mobileUrl) && (
                   <p className="mt-1 text-center text-[9px] leading-relaxed text-emerald-600">
-                    内网 HTTPS · 同 WiFi 最快
+                    同 WiFi 内网 HTTPS · 推荐
                     <br />
                     首次打开点「高级」→「继续访问」
                   </p>
                 )}
+                {isPublicHttpsMobileCameraUrl(mobileUrl) && (
+                  <p className="mt-1 text-center text-[9px] leading-relaxed text-amber-700">
+                    当前走公网域名（较慢）
+                    <br />
+                    同 WiFi 请确认电脑 4730 端口已启动
+                  </p>
+                )}
+                {isHttpMobileCameraUrl(mobileUrl) && (
+                  <p className="mt-1 text-center text-[9px] leading-relaxed text-red-600">
+                    当前为 HTTP，微信无法打开
+                    <br />
+                    请在设置页配置公网 HTTPS
+                  </p>
+                )}
                 {qrDataUrl ? (
-                  <img src={qrDataUrl} alt="手机拍照二维码" className="mt-2 rounded-lg border border-slate-100" />
+                  <img
+                    src={qrDataUrl}
+                    alt="手机拍照二维码"
+                    className={`mt-2 rounded-lg border border-slate-100 ${stacked ? 'mx-auto w-[160px]' : ''}`}
+                  />
                 ) : (
-                  <div className="mt-2 flex h-[140px] w-[140px] items-center justify-center rounded-lg bg-slate-50 text-[10px] text-slate-400">
+                  <div
+                    className={`mt-2 flex items-center justify-center rounded-lg bg-slate-50 text-[10px] text-slate-400 ${
+                      stacked ? 'mx-auto h-[160px] w-[160px]' : 'h-[140px] w-[140px]'
+                    }`}
+                  >
                     生成中…
                   </div>
                 )}
                 {mobileUrl && (
-                  <p className="mt-2 break-all text-center text-[9px] leading-tight text-slate-400">{mobileUrl}</p>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void copyMobileUrl()}
+                      className="mt-2 w-full rounded-lg border border-violet-200 bg-violet-50 px-2 py-1.5 text-[10px] font-medium text-violet-800 hover:bg-violet-100"
+                    >
+                      {urlCopied ? '已复制' : '复制链接（微信扫不出时用）'}
+                    </button>
+                    <p className="mt-2 break-all text-center text-[9px] leading-tight text-slate-400">{mobileUrl}</p>
+                  </>
                 )}
               </>
             )}

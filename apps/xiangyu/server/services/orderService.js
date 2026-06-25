@@ -11,6 +11,7 @@ const {
   extractPackagesFromResponse,
   normalizePackagesBatch,
 } = require('./xhsPackageParse');
+const { isLogisticsQuery, searchAfterSalesByKeywords } = require('./afterSalesReturnService');
 
 const ORDER_API_URL = 'https://ark.xiaohongshu.com/api/edith/fulfillment/order/page';
 const ORDER_REFERER = 'https://ark.xiaohongshu.com/app-order/order/query';
@@ -38,11 +39,11 @@ function endOfShanghaiDay(offsetDays = 0) {
   return Date.UTC(y, m, d - offsetDays, 15, 59, 59, 999);
 }
 
-function buildOrderBody(pageNo, pageSize, startMs, endMs) {
+function buildOrderBody(pageNo, pageSize, startMs, endMs, multiSearchField = '') {
   return {
     page_no: pageNo,
     page_size: pageSize,
-    multi_search_field: '',
+    multi_search_field: String(multiSearchField || '').trim(),
     order_tag_list: [],
     order_type_list: [],
     promise_ship_time_type_list: [],
@@ -79,8 +80,15 @@ function buildHeaders(body, cookie) {
   };
 }
 
-async function requestOrderPage(account, startMs, endMs, pageNo = 1, pageSize = ORDER_PAGE_SIZE) {
-  const body = buildOrderBody(pageNo, pageSize, startMs, endMs);
+async function requestOrderPage(
+  account,
+  startMs,
+  endMs,
+  pageNo = 1,
+  pageSize = ORDER_PAGE_SIZE,
+  multiSearchField = '',
+) {
+  const body = buildOrderBody(pageNo, pageSize, startMs, endMs, multiSearchField);
   const headers = buildHeaders(body, account.cookie);
 
   const res = await fetch(ORDER_API_URL, {
@@ -193,7 +201,7 @@ async function fetchOrdersFromApi(config, options = {}) {
     const account = accounts[i];
     if (result.status === 'fulfilled') {
       for (const order of result.value.orders) {
-        const key = `${order.shopTitle}::${order.orderId}`;
+        const key = `${order.shopTitle}::${order.orderNo}`;
         if (!merged.has(key)) merged.set(key, order);
       }
       continue;
@@ -270,6 +278,131 @@ async function getOrders(options = {}) {
   return { ...data, cached: false };
 }
 
+function resolveSearchRange(days = 30) {
+  const span = Math.min(Math.max(Number(days) || 30, 1), 90);
+  return { startMs: startOfShanghaiDay(span - 1), endMs: endOfShanghaiDay(0) };
+}
+
+function isReturnRelatedOrder(order) {
+  const text = [
+    order.afterSaleStatusDesc,
+    order.afterSaleStatus,
+    order.status,
+    order.statusDesc,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  return /退|售后|退款|换货|拒收/.test(text);
+}
+
+async function searchOrdersForAccount(account, startMs, endMs, query, maxPages = 2) {
+  const allPackages = [];
+  for (let page = 1; page <= maxPages; page += 1) {
+    const { packages, hasMore } = await requestOrderPage(
+      account,
+      startMs,
+      endMs,
+      page,
+      ORDER_PAGE_SIZE,
+      query,
+    );
+    allPackages.push(...packages);
+    if (!hasMore || !packages.length) break;
+  }
+  const sellerIdFromCookie = extractSellerIdFromCookie(account.cookie);
+  return normalizePackagesBatch(allPackages, account.name).map((order) => ({
+    ...order,
+    sellerId: order.sellerId || sellerIdFromCookie,
+  }));
+}
+
+async function searchOrders(query, options = {}) {
+  const q = String(query || '').trim();
+  if (!q) throw new Error('请输入查询内容（物流单号、订单号、买家昵称或手机号）');
+
+  // 物流单号 / P 开头订单号 → 千帆售后列表 API（HAR: after-sales/returns/v3）
+  if (isLogisticsQuery(q) || /^P\d{10,}$/i.test(q)) {
+    return searchAfterSalesByKeywords(q, options);
+  }
+
+  const config = loadConfig();
+  const accounts = listEnabledAccounts(config);
+  if (!accounts.length) {
+    throw new Error('未读取到店铺 Cookie，请确认辅助出库软件已配置账号');
+  }
+
+  const days = options.days || 30;
+  const { startMs, endMs } = resolveSearchRange(days);
+  const merged = new Map();
+  const errors = [];
+  const perShop = new Map();
+
+  const settled = await Promise.allSettled(
+    accounts.map(async (account) => searchOrdersForAccount(account, startMs, endMs, q)),
+  );
+
+  for (let i = 0; i < settled.length; i += 1) {
+    const result = settled[i];
+    const account = accounts[i];
+    const shopName = account?.name || '未命名店铺';
+    if (result.status === 'fulfilled') {
+      perShop.set(shopName, result.value.length);
+      for (const order of result.value) {
+        const key = `${order.shopTitle}::${order.orderNo}`;
+        if (!merged.has(key)) merged.set(key, order);
+      }
+      continue;
+    }
+    const err = result.reason;
+    const msg = err instanceof XhsSignError ? err.message : String(err?.message || err);
+    errors.push(`${shopName}：${msg}`);
+    perShop.set(shopName, 0);
+  }
+
+  let items = [...merged.values()];
+  items.sort((a, b) => {
+    const ar = isReturnRelatedOrder(a) ? 1 : 0;
+    const br = isReturnRelatedOrder(b) ? 1 : 0;
+    if (ar !== br) return br - ar;
+    return Number(b.createdAt || 0) - Number(a.createdAt || 0);
+  });
+
+  // 订单页搜索无结果时，再用售后 API 兜底（昵称搜索不到时）
+  if (!items.length && q.length >= 6) {
+    try {
+      const fallback = await searchAfterSalesByKeywords(q, { ...options, maxPages: 1 });
+      if (fallback.items?.length) return { ...fallback, message: `${fallback.message}（订单页未命中，已从售后列表匹配）` };
+    } catch {
+      /* 保持原空结果 */
+    }
+  }
+
+  const shopSummary = accounts.map((a) => ({
+    name: a.name || '未命名店铺',
+    count: perShop.get(a.name || '未命名店铺') || 0,
+  }));
+
+  let message = items.length
+    ? `四店共 ${items.length} 条匹配`
+    : '未找到匹配订单，可换关键词或扩大时间范围';
+  if (errors.length && items.length) {
+    message = `${message}（${errors.length} 个店铺查询失败）`;
+  }
+  if (errors.length && !items.length) {
+    throw new Error(errors[0] || '查询失败');
+  }
+
+  return {
+    query: q,
+    days,
+    message,
+    warnings: errors,
+    shopSummary,
+    items,
+    returnRelatedCount: items.filter(isReturnRelatedOrder).length,
+  };
+}
+
 function clearOrdersCache() {
   ordersCache = { data: null, at: 0, key: '' };
 }
@@ -277,6 +410,7 @@ function clearOrdersCache() {
 module.exports = {
   getOrders,
   clearOrdersCache,
+  searchOrders,
   fetchOrdersFromApi,
   fetchOrdersForAccount,
   filterTodayAndYesterday,

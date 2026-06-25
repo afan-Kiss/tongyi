@@ -146,7 +146,52 @@ export const operationLogRepo = {
     return prisma.operationLog.findMany({
       take,
       orderBy: { createdAt: 'desc' },
-      include: { bracelet: true },
+      include: {
+        bracelet: {
+          select: { id: true, certNo: true, category: true, batch: true, ringSize: true, cost: true },
+        },
+      },
+    })
+  },
+
+  /** 待补齐 Excel 同步的操作（未撤销、支持重试的类型） */
+  findPendingExcelSync(take = 20) {
+    return prisma.operationLog.findMany({
+      where: {
+        excelSynced: false,
+        reverted: false,
+        opType: { in: ['outbound', 'inbound', 'new_inbound'] },
+      },
+      orderBy: { createdAt: 'asc' },
+      take,
+    })
+  },
+
+  /** 该编号最近一次含 Excel 改前/改后截图的出入库操作（未撤销） */
+  findLatestExcelSyncByCert(certNo: string) {
+    return prisma.operationLog.findFirst({
+      where: {
+        certNo,
+        reverted: false,
+        excelSyncMsg: { not: null },
+        opType: { in: ['outbound', 'inbound', 'new_inbound'] },
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+  },
+
+  /** 今日某类操作（未撤销） */
+  findToday(opType: string | string[], since: Date, take = 30) {
+    const types = Array.isArray(opType) ? opType : [opType]
+    return prisma.operationLog.findMany({
+      where: { opType: { in: types }, createdAt: { gte: since }, reverted: false },
+      orderBy: { createdAt: 'desc' },
+      take,
+      include: {
+        bracelet: {
+          select: { id: true, certNo: true, category: true, batch: true, ringSize: true, cost: true },
+        },
+      },
     })
   },
 

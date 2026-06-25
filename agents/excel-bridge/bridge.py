@@ -531,15 +531,19 @@ def sync_inbound():
         today = _today()
 
         ws.Cells(row, COL_QTY).Value = 1
-        ws.Cells(row, COL_RETURN_DATE).Value = today
-        if data.get("fullRemark") is not None:
-            ws.Cells(row, COL_REMARK).Value = str(data.get("fullRemark"))
+        if data.get("recoveryOnly"):
+            ws.Cells(row, COL_SOLD_DATE).Value = ""
+            ws.Cells(row, COL_ACTUAL_PRICE).Value = ""
         else:
-            suffix = data.get("remark") or f"{today}退回"
-            old = _cell_str(ws.Cells(row, COL_REMARK).Value)
-            ws.Cells(row, COL_REMARK).Value = f"{old}；{suffix}" if old else suffix
-        ws.Cells(row, COL_SOLD_DATE).Value = ""
-        ws.Cells(row, COL_ACTUAL_PRICE).Value = ""
+            ws.Cells(row, COL_RETURN_DATE).Value = today
+            if data.get("fullRemark") is not None:
+                ws.Cells(row, COL_REMARK).Value = str(data.get("fullRemark"))
+            else:
+                suffix = data.get("remark") or f"{today}退回"
+                old = _cell_str(ws.Cells(row, COL_REMARK).Value)
+                ws.Cells(row, COL_REMARK).Value = f"{old}；{suffix}" if old else suffix
+            ws.Cells(row, COL_SOLD_DATE).Value = ""
+            ws.Cells(row, COL_ACTUAL_PRICE).Value = ""
 
         try:
             ws.Parent.Application.Calculate()
@@ -637,43 +641,12 @@ def sync_revert():
 
 @app.post("/sync/update_row")
 def sync_update_row():
-    """更新 Excel 行基础字段（不改数量与编号）。"""
-    data = request.get_json(force=True) or {}
-    cert_no = _cell_str(data.get("certNo")).upper()
-    sheet_name = data.get("excelSheet") or _bound_sheet or None
-    try:
-        row = _find_row_by_cert(cert_no, sheet_name, data.get("excelRow"))
-        if not row:
-            return _sync_response(False, f"Excel 中未找到 {cert_no}", status=404)
-
-        ws = _get_ws(sheet_name)
-        app_excel = _get_connector()
-        before_b64, _ = capture_row_snapshot(ws, app_excel, row)
-
-        if "arrivalDate" in data:
-            ws.Cells(row, COL_ARRIVAL_DATE).Value = data.get("arrivalDate") or ""
-        if "batch" in data:
-            ws.Cells(row, COL_BATCH).Value = data.get("batch") or ""
-        if "category" in data:
-            ws.Cells(row, COL_CATEGORY).Value = data.get("category") or ""
-        if "ringSize" in data:
-            ws.Cells(row, COL_RING_SIZE).Value = data.get("ringSize") or ""
-        if "cost" in data:
-            ws.Cells(row, COL_COST).Value = data.get("cost") or ""
-        if "remark" in data:
-            ws.Cells(row, COL_REMARK).Value = data.get("remark") or ""
-
-        try:
-            ws.Parent.Application.Calculate()
-        except Exception:
-            pass
-
-        actual_sheet = str(ws.Name)
-        return _finish_sync(ws, app_excel, row, actual_sheet, f"行更新成功 row={row}", before_snapshot_b64=before_b64)
-    except Exception as e:
-        logger.exception("update_row sync failed")
-        _reset_connector()
-        return _sync_response(False, str(e), status=500)
+    """已禁用：Excel 仅允许出库/入库流程修改。"""
+    return _sync_response(
+        False,
+        "Excel 仅允许通过出库/入库修改，不支持直接改行",
+        status=403,
+    )
 
 
 @app.get("/next-cert-no")

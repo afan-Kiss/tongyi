@@ -1,4 +1,5 @@
-import { request, upload } from './client'
+import { request, upload, publicRequest, PRINT_TIMEOUT_MS } from './client'
+import type { UserActivityLogRow } from '@/lib/userActivity'
 import type {
   AppSettings,
   Bracelet,
@@ -15,6 +16,35 @@ import type {
 
 /** 前端 API 层 — 只负责 HTTP 调用，不含业务逻辑 */
 
+export const authApi = {
+  license: () =>
+    request<{ data: { allowed: boolean; message: string; switchValue?: '开' | '关' | null } }>(
+      '/auth/license',
+    ),
+  status: () =>
+    request<{
+      data: {
+        authed: boolean
+        username: string
+        displayName?: string
+        license?: { allowed: boolean; message: string; switchValue?: '开' | '关' | null }
+      }
+    }>('/auth/status'),
+  profile: () =>
+    request<{ data: { username: string; displayName: string } }>('/auth/profile'),
+  saveProfile: (displayName: string) =>
+    request<{ data: { username: string; displayName: string } }>('/auth/profile', {
+      method: 'PUT',
+      body: JSON.stringify({ displayName }),
+    }),
+  login: (username: string, password: string) =>
+    request<{ data: { username: string } }>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    }),
+  logout: () => request<{ data: { loggedOut: boolean } }>('/auth/logout', { method: 'POST' }),
+}
+
 export const inventoryApi = {
   stats: () => request<{ data: DashboardStats }>('/inventory/stats'),
   list: (params: Record<string, string | number>) => {
@@ -26,12 +56,20 @@ export const inventoryApi = {
     const q = opts?.dbOnly ? '?dbOnly=1' : ''
     return request<{ data: Bracelet }>(`/inventory/by-cert/${encodeURIComponent(certNo)}${q}`)
   },
-  scanLookup: (code: string, opts?: { dbOnly?: boolean; includeList?: boolean }) => {
+  scanLookup: (code: string, opts?: { dbOnly?: boolean; includeList?: boolean; importFromExcel?: boolean }) => {
     const q = new URLSearchParams()
     if (opts?.dbOnly) q.set('dbOnly', '1')
     if (opts?.includeList) q.set('includeList', '1')
+    if (opts?.importFromExcel) q.set('importFromExcel', '1')
     const qs = q.toString()
-    return request<{ data: { items: Bracelet[] } }>(
+    return request<{
+      data: {
+        items: Bracelet[]
+        importedFromExcel?: boolean
+        excelSource?: 'cache' | 'live' | null
+        needsPhoto?: boolean
+      }
+    }>(
       `/inventory/by-scan/${encodeURIComponent(code)}${qs ? `?${qs}` : ''}`,
     )
   },
@@ -65,8 +103,10 @@ export const operationsApi = {
     request(`/operations/revert/${logId}`, { method: 'POST' }),
   retryExcel: (logId: string) =>
     request<{ data: OpResult }>(`/operations/retry-excel/${logId}`, { method: 'POST' }),
-  excelSnapshot: (certNo: string) =>
-    request<{ data: ExcelSyncResult }>(`/operations/excel-snapshot/${encodeURIComponent(certNo)}`),
+  excelSnapshot: (certNo: string, refresh = false) =>
+    request<{ data: ExcelSyncResult }>(
+      `/operations/excel-snapshot/${encodeURIComponent(certNo)}${refresh ? '?refresh=1' : ''}`,
+    ),
 }
 
 export const mediaApi = {
@@ -85,6 +125,10 @@ export const settingsApi = {
   save: (body: Partial<AppSettings>) =>
     request<{ data: AppSettings }>('/settings', { method: 'PUT', body: JSON.stringify(body) }),
   status: () => request<{ data: SystemStatus }>('/settings/status'),
+  restartPrintAgent: () =>
+    request<{ data: { ok: boolean; message: string } }>('/settings/restart-print-agent', {
+      method: 'POST',
+    }),
   excelBridge: () => request<{ data: { online: boolean; message: string } }>('/settings/excel-bridge'),
   labelTemplate: {
     get: () => request<{ data: LabelTemplate }>('/settings/label-template'),
@@ -125,10 +169,18 @@ export const printApi = {
   }) =>
     request<{ ok: boolean; message: string; printer?: string; printed?: string[] }>(
       '/print/bracelet-tag',
-      { method: 'POST', body: JSON.stringify(body) },
+      {
+        method: 'POST',
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(PRINT_TIMEOUT_MS),
+      },
     ),
   label: (body: Record<string, unknown>) =>
-    request('/print/label', { method: 'POST', body: JSON.stringify(body) }),
+    request('/print/label', {
+      method: 'POST',
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(PRINT_TIMEOUT_MS),
+    }),
 }
 
 export const healthApi = {
@@ -136,8 +188,14 @@ export const healthApi = {
 }
 
 export const photoRelayApi = {
+  mobileInfo: () =>
+    publicRequest<{
+      data: { lanIps: string[]; port: number; mobileHttpsPort: number; mobileHttpsEnabled: boolean }
+    }>('/photo-relay/mobile-info'),
   station: (stationId?: string) =>
-    request<{ data: { sessionId: string; certNo: string; created: boolean } }>('/photo-relay/station', {
+    publicRequest<{
+      data: { sessionId: string; certNo: string; created: boolean; mobileUrl?: string }
+    }>('/photo-relay/station', {
       method: 'POST',
       body: JSON.stringify({ stationId: stationId || undefined }),
     }),
@@ -147,7 +205,7 @@ export const photoRelayApi = {
       { method: 'PATCH', body: JSON.stringify({ certNo, ackPhotos: ackPhotos === true }) },
     ),
   create: (certNo: string) =>
-    request<{ data: { sessionId: string; certNo: string } }>('/photo-relay', {
+    publicRequest<{ data: { sessionId: string; certNo: string } }>('/photo-relay', {
       method: 'POST',
       body: JSON.stringify({ certNo }),
     }),
@@ -163,22 +221,51 @@ export const photoRelayApi = {
       }
     }>(`/photo-relay/${encodeURIComponent(sessionId)}/poll?lastPhotoSeq=${lastPhotoSeq}`),
   heartbeat: (sessionId: string, role: 'phone' | 'pc') =>
-    request<{ data: { certNo: string; phoneOnline: boolean } }>(
+    publicRequest<{ data: { certNo: string; phoneOnline: boolean } }>(
       `/photo-relay/${encodeURIComponent(sessionId)}/heartbeat`,
       { method: 'POST', body: JSON.stringify({ role }) },
     ),
   pushFrame: (sessionId: string, frame: string) =>
-    request(`/photo-relay/${encodeURIComponent(sessionId)}/frame`, {
+    publicRequest(`/photo-relay/${encodeURIComponent(sessionId)}/frame`, {
       method: 'POST',
       body: JSON.stringify({ frame }),
     }),
   shoot: (sessionId: string, photo: string) =>
-    request<{ data: { seq: number } }>(`/photo-relay/${encodeURIComponent(sessionId)}/shoot`, {
+    publicRequest<{ data: { seq: number } }>(`/photo-relay/${encodeURIComponent(sessionId)}/shoot`, {
       method: 'POST',
       body: JSON.stringify({ photo }),
     }),
   get: (sessionId: string) =>
-    request<{ data: { sessionId: string; certNo: string; phoneOnline: boolean } }>(
+    publicRequest<{ data: { sessionId: string; certNo: string; phoneOnline: boolean } }>(
       `/photo-relay/${encodeURIComponent(sessionId)}`,
     ),
+}
+
+export const auditApi = {
+  logs: (params: {
+    page?: number
+    pageSize?: number
+    username?: string
+    category?: string
+    q?: string
+    from?: string
+    to?: string
+  }) => {
+    const q = new URLSearchParams()
+    if (params.page) q.set('page', String(params.page))
+    if (params.pageSize) q.set('pageSize', String(params.pageSize))
+    if (params.username) q.set('username', params.username)
+    if (params.category) q.set('category', params.category)
+    if (params.q) q.set('q', params.q)
+    if (params.from) q.set('from', params.from)
+    if (params.to) q.set('to', params.to)
+    return request<{
+      data: {
+        items: UserActivityLogRow[]
+        total: number
+        page: number
+        pageSize: number
+      }
+    }>(`/audit/logs?${q}`)
+  },
 }

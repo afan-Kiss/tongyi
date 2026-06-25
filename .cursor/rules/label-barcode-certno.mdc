@@ -1,14 +1,19 @@
 ---
-description: 珠宝吊牌打印：条形码与编号一致
-globs: agents/print-agent/**,apps/web/src/**/Label*.tsx,apps/web/src/lib/labelTemplateStorage.ts
+description: 珠宝吊牌：编号与数字条码规则
+globs: agents/print-agent/**,apps/web/src/**/Label*.tsx,apps/web/src/lib/labelPrintSync.ts,apps/web/src/lib/labelPrintMemory.ts
 alwaysApply: false
 ---
 
-# 标签条形码 = 编号
+# 编号 vs 条形码（固定规则）
 
-- 条形码编码内容必须使用 `bracelet.certNo`（编号），扫描结果与标签上「编号:xxx」一致。
-- 禁止将条码与编号拆成不同字段（例如 `certLabel` 与 `certNo` 不同值）。
-- 打印测试时：`certNo` 即编号，也是条码内容（如 `ZQ9527` 扫出来就是 `ZQ9527`）。
+- **编号 `certNo`**：镯子业务编号，吊牌文字「编号:xxx」用此字段，扫码枪查库存也用编号/条码字段匹配 DB。
+- **条形码内容**（与编号不同）：数字条码，公式固定为  
+  **`前缀 + round(成本×3+10) + floor(圈口)`**  
+  例：前缀 02、成本 1000、圈口 57.0 → `02301057`  
+  实现见 `apps/web/src/lib/labelPrintSync.ts` 的 `computeBarcodeDigits`。
+- 前缀来自批次前两位或用户设置的条码前缀（`labelPrintMemory.barcodePrefix`）。
+- 打印时条码行编码上述数字串；PQAPI/PNG 路径以模板 `barcode` 行的 `format` 为准。
+- 禁止把编号字符串直接当作条码内容（除非数字条码恰好与编号相同）。
 
 # 偏移
 

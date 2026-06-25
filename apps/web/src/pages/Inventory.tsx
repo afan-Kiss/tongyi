@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api, type Bracelet, type DashboardStats } from '@/lib/api'
-import { isPhotoAsset, mediaThumbUrl } from '@/lib/mediaAsset'
+import { isPhotoAsset } from '@/lib/mediaAsset'
+import { MediaThumbImg } from '@/components/MediaThumbImg'
 import { BraceletDrawer } from '@/components/BraceletDrawer'
 import { onInventoryRefresh } from '@/lib/inventoryRefresh'
 import { formatDateTime } from '@/lib/formatDateTime'
@@ -139,10 +140,9 @@ export const InventoryPage: React.FC = () => {
                 {item.mediaAssets && item.mediaAssets.filter(isPhotoAsset).length > 0 ? (
                   <div className="flex gap-2 overflow-x-auto pb-1">
                     {item.mediaAssets.filter(isPhotoAsset).slice(0, 4).map((asset) => (
-                      <img
+                      <MediaThumbImg
                         key={asset.id}
-                        src={mediaThumbUrl(asset)}
-                        alt=""
+                        asset={asset}
                         className="h-20 w-20 shrink-0 rounded-xl border border-rose-100 object-cover"
                         loading="lazy"
                       />

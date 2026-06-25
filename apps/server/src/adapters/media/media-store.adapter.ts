@@ -1,10 +1,10 @@
 import path from 'node:path'
 import fs from 'node:fs'
-import sharp from 'sharp'
 import { v4 as uuidv4 } from 'uuid'
 import { getMediaDir } from '../../config/env'
 import { prisma } from '../../lib/prisma'
 import { normalizeCertNo } from '../../domain/inventory.rules'
+import { optimizePhotoForStorage, writePhotoThumbnail } from '../../lib/photo-watermark'
 
 export async function saveMediaFile(
   braceletId: string,
@@ -18,19 +18,40 @@ export async function saveMediaFile(
   const ext = path.extname(file.originalname) || (type === 'photo' ? '.jpg' : '.webm')
   const filename = `${Date.now()}-${uuidv4().slice(0, 8)}${ext}`
   const destPath = path.join(dir, filename)
-  fs.writeFileSync(destPath, file.buffer)
+
+  let fileBuffer = file.buffer
+  let mimeType = file.mimetype
+  let sizeBytes = file.size
+
+  if (type === 'photo') {
+    const optimized = await optimizePhotoForStorage(file.buffer)
+    fileBuffer = optimized.buffer
+    mimeType = optimized.mimeType
+    sizeBytes = fileBuffer.length
+  }
+
+  fs.writeFileSync(destPath, fileBuffer)
 
   let thumbPath: string | null = null
   if (type === 'photo') {
     const thumbName = `thumb-${filename.replace(ext, '.jpg')}`
     const thumbDest = path.join(dir, thumbName)
-    await sharp(file.buffer).resize(320, 320, { fit: 'inside' }).jpeg({ quality: 82 }).toFile(thumbDest)
+    await writePhotoThumbnail(fileBuffer, thumbDest)
     thumbPath = path.relative(path.join(getMediaDir(), '..'), thumbDest).replace(/\\/g, '/')
   }
 
   const relPath = path.relative(path.join(getMediaDir(), '..'), destPath).replace(/\\/g, '/')
   return prisma.mediaAsset.create({
-    data: { braceletId, type, filename, path: relPath, thumbPath, mimeType: file.mimetype, sizeBytes: file.size },
+    data: {
+      braceletId,
+      type,
+      filename,
+      path: relPath,
+      thumbPath,
+      mimeType,
+      sizeBytes,
+      watermarkBaked: false,
+    },
   })
 }
 

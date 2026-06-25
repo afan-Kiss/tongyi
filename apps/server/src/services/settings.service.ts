@@ -2,7 +2,6 @@ import os from 'node:os'
 import { prisma } from '../lib/prisma'
 import { checkExcelBridgeHealth } from '../adapters/excel/excel-live.adapter'
 import {
-  getPrintAgentUrl,
   getPort,
   getMobileHttpsPort,
   getXiangyuPort,
@@ -16,6 +15,7 @@ import {
   startExcelBridgeProcess,
   stopExcelBridgeProcess,
 } from './process-manager.service'
+import { getPrintAgentDisplayStatus } from './print-agent-recovery.service'
 
 export interface AppSettingsData {
   excelBridgeEnabled: boolean
@@ -25,6 +25,10 @@ export interface AppSettingsData {
   defaultSalesChannel: string
   printerName: string
   printerModel: string
+  photoWatermark?: {
+    enabled: boolean
+    fontSizeBoost: number
+  }
 }
 
 const DEFAULT_SETTINGS: AppSettingsData = {
@@ -35,15 +39,22 @@ const DEFAULT_SETTINGS: AppSettingsData = {
   defaultSalesChannel: '',
   printerName: '',
   printerModel: 'PUQU_AQ00',
+  photoWatermark: { enabled: true, fontSizeBoost: 16 },
 }
+
+const VIRTUAL_IFACE_RE = /vEthernet|virtualbox|vmware|hyper-v|wsl|loopback|docker|npcap|tailscale|zerotier|bluetooth/i
+const SKIP_LAN_IP_RE = /^169\.254\.|^192\.168\.240\.|^127\./
 
 export function getLanIps(): string[] {
   const nets = os.networkInterfaces()
   const ips: string[] = []
   for (const name of Object.keys(nets)) {
+    if (VIRTUAL_IFACE_RE.test(name)) continue
     for (const net of nets[name] || []) {
       if (net.family === 'IPv4' && !net.internal) {
-        ips.push(net.address)
+        const addr = net.address
+        if (SKIP_LAN_IP_RE.test(addr)) continue
+        ips.push(addr)
       }
     }
   }
@@ -56,6 +67,10 @@ export async function getSettings(): Promise<AppSettingsData> {
   const parsed = JSON.parse(row.json) as Partial<AppSettingsData>
   const merged = { ...DEFAULT_SETTINGS, ...parsed, lanUrls: getLanIps() }
   if (!merged.publicUrl) merged.publicUrl = DEFAULT_SETTINGS.publicUrl
+  merged.photoWatermark = {
+    ...DEFAULT_SETTINGS.photoWatermark!,
+    ...(parsed.photoWatermark || {}),
+  }
   return merged
 }
 
@@ -122,10 +137,7 @@ async function checkXiangyuHealth() {
 export async function getSystemStatus() {
   const [excelBridge, printAgent, xiangyu] = await Promise.all([
     checkExcelBridgeHealth(),
-    fetch(`${getPrintAgentUrl()}/health`, { signal: AbortSignal.timeout(2000) })
-      .then((r) => r.json() as Promise<{ ok?: boolean }>)
-      .then((d) => ({ online: !!d.ok, message: d.ok ? '打印 Agent 在线' : '离线' }))
-      .catch(() => ({ online: false, message: '打印 Agent 离线' })),
+    getPrintAgentDisplayStatus(),
     checkXiangyuHealth(),
   ])
   const degradedReasons: string[] = []

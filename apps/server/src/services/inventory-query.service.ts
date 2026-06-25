@@ -1,7 +1,8 @@
 import { todayStr, normalizeCertNo } from '../domain/inventory.rules'
 import { braceletRepo, operationLogRepo } from '../repositories/bracelet.repository'
+import { presentOperationLogs } from '../utils/operation-log.presenter'
 import { presentBracelet } from '../utils/media-presenter'
-import { upsertBraceletFromExcel } from './excel-row-sync.service'
+import { healBraceletAttachments } from './bracelet-meta-restore.service'
 
 function normalizeScanInput(raw: string): string {
   return raw.replace(/[\r\n\0]+/g, '').trim()
@@ -12,19 +13,15 @@ export async function findBraceletInDb(scanInput: string) {
   const scanned = normalizeScanInput(scanInput)
   if (!scanned) return null
   const bracelet = await braceletRepo.findByScanCode(scanned)
-  return bracelet ? presentBracelet(bracelet) : null
+  if (!bracelet) return null
+  await healBraceletAttachments(bracelet.certNo)
+  const fresh = await braceletRepo.findByCert(bracelet.certNo)
+  return fresh ? presentBracelet(fresh) : presentBracelet(bracelet)
 }
 
-/** 扫码枪输入：编号 / 条形码；可选从 Excel 补建（扫码工作台用） */
-export async function queryByCertNo(scanInput: string, opts?: { syncExcel?: boolean }) {
-  const scanned = normalizeScanInput(scanInput)
-  if (!scanned) return null
-
-  let bracelet = await braceletRepo.findByScanCode(scanned)
-  if (!bracelet && opts?.syncExcel !== false) {
-    bracelet = await upsertBraceletFromExcel(normalizeCertNo(scanned))
-  }
-  return bracelet ? presentBracelet(bracelet) : null
+/** 扫码枪输入：编号 / 条形码；仅查数据库，不从 Excel 补建（改库/改 Excel 仅出入库/登记操作） */
+export async function queryByCertNo(scanInput: string, _opts?: { syncExcel?: boolean }) {
+  return findBraceletInDb(scanInput)
 }
 
 function dedupeBracelets<T extends { id: string }>(items: T[]): T[] {
@@ -104,11 +101,6 @@ export async function queryByScanCode(
 
   let narrowed = narrowScanResults(merged, scanned)
 
-  if (!narrowed.length && opts?.syncExcel !== false) {
-    const created = await upsertBraceletFromExcel(normalizeCertNo(scanned))
-    if (created) narrowed = [created]
-  }
-
   return narrowed.map(presentBracelet)
 }
 
@@ -129,7 +121,8 @@ export async function queryList(params: {
   if (params.inStockOnly) where.qty = 1
   if (params.outStockOnly) where.qty = 0
   if (params.todayOp) {
-    const since = new Date(todayStr())
+    const [y, m, day] = todayStr().split('-').map(Number)
+    const since = new Date(y, m - 1, day)
     const types = params.todayOp === 'outbound' ? [...TODAY_OUTBOUND_TYPES] : [...TODAY_INBOUND_TYPES]
     const ids = await operationLogRepo.braceletIdsToday(types, since)
     where.id = { in: ids.length ? ids : ['__none__'] }
@@ -150,13 +143,25 @@ export async function queryList(params: {
 
 export async function queryDashboard() {
   const today = todayStr()
-  const since = new Date(today)
-  const [inStock, outOfStock, todayOutbound, todayInbound, recentLogs] = await Promise.all([
-    braceletRepo.count({ qty: 1 }),
-    braceletRepo.count({ qty: 0 }),
-    operationLogRepo.countToday('outbound', since),
-    operationLogRepo.countToday(['inbound', 'new_inbound', 'register'], since),
-    operationLogRepo.recent(20),
-  ])
-  return { inStock, outOfStock, todayOutbound, todayInbound, recentLogs }
+  const [y, m, day] = today.split('-').map(Number)
+  const since = new Date(y, m - 1, day)
+  const [inStock, outOfStock, todayOutbound, todayInbound, recentRaw, todayOutboundRaw, todayInboundRaw] =
+    await Promise.all([
+      braceletRepo.count({ qty: 1 }),
+      braceletRepo.count({ qty: 0 }),
+      operationLogRepo.countToday('outbound', since),
+      operationLogRepo.countToday(['inbound', 'new_inbound', 'register'], since),
+      operationLogRepo.recent(20),
+      operationLogRepo.findToday('outbound', since, 50),
+      operationLogRepo.findToday(['inbound', 'new_inbound', 'register'], since, 50),
+    ])
+  return {
+    inStock,
+    outOfStock,
+    todayOutbound,
+    todayInbound,
+    recentLogs: presentOperationLogs(recentRaw),
+    todayOutboundLogs: presentOperationLogs(todayOutboundRaw),
+    todayInboundLogs: presentOperationLogs(todayInboundRaw),
+  }
 }

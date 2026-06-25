@@ -1,21 +1,34 @@
 import React from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
-import { LayoutDashboard, Package, ScanLine, Settings, Tag } from 'lucide-react'
+import { LayoutDashboard, Package, ScanLine, ScrollText, Settings, Tag } from 'lucide-react'
+import { useAuth } from '@/context/AuthContext'
+import { isAuditViewer } from '@/lib/userActivity'
 
-const NAV = [
+const BASE_NAV = [
   { to: '/inventory', icon: LayoutDashboard, label: '总览', mobileLabel: '总览' },
   { to: '/inventory/scan', icon: ScanLine, label: '扫码', mobileLabel: '扫码' },
   { to: '/inventory/inbound?type=register', icon: Tag, label: '标签入库', mobileLabel: '入库' },
   { to: '/inventory/stock', icon: Package, label: '库存', mobileLabel: '库存' },
   { to: '/inventory/settings', icon: Settings, label: '设置', mobileLabel: '设置' },
-]
+] as const
 
-export const InventoryLayout: React.FC = () => (
+const AUDIT_NAV = {
+  to: '/inventory/audit',
+  icon: ScrollText,
+  label: '操作日志',
+  mobileLabel: '日志',
+} as const
+
+export const InventoryLayout: React.FC = () => {
+  const { username } = useAuth()
+  const nav = isAuditViewer(username) ? [...BASE_NAV, AUDIT_NAV] : [...BASE_NAV]
+
+  return (
   <div className="flex min-h-full flex-col">
     <div className="border-b border-white/40 bg-white/30">
       <div className="mx-auto flex w-full max-w-6xl items-center justify-end px-3 py-2 md:px-4">
         <nav className="hidden gap-1 rounded-2xl bg-white/60 p-1 md:flex">
-          {NAV.map((item) => (
+          {nav.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -43,7 +56,7 @@ export const InventoryLayout: React.FC = () => (
     </main>
 
     <nav className="mobile-bottom-nav md:hidden">
-      {NAV.map((item) => (
+      {nav.map((item) => (
         <NavLink
           key={item.to}
           to={item.to}
@@ -60,4 +73,5 @@ export const InventoryLayout: React.FC = () => (
       ))}
     </nav>
   </div>
-)
+  )
+}

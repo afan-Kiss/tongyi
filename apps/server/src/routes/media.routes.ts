@@ -1,10 +1,8 @@
 import { Router } from 'express'
 import multer from 'multer'
-import path from 'node:path'
-import fs from 'node:fs'
-import { getDataDir } from '../config/env'
 import { findByCertNo } from '../services/bracelet.service'
 import { saveMediaFile, mediaPublicUrl } from '../services/media.service'
+import { sendMediaFile } from '../services/media-serve.service'
 import { normalizeCertNo } from '../services/inventory.service'
 
 const upload = multer({
@@ -41,16 +39,14 @@ mediaRouter.post('/upload', upload.single('file'), async (req, res) => {
   })
 })
 
-mediaRouter.get('/file/*', (req, res) => {
+mediaRouter.get('/file/*', async (req, res) => {
   const rel = (req.params as { 0?: string })[0]
   if (!rel) {
     res.status(400).json({ ok: false, message: '缺少文件路径' })
     return
   }
-  const full = path.join(getDataDir(), rel)
-  if (!fs.existsSync(full)) {
+  const ok = await sendMediaFile(rel, res, { raw: String(req.query.raw || '') })
+  if (!ok) {
     res.status(404).json({ ok: false, message: '文件不存在' })
-    return
   }
-  res.sendFile(full)
 })

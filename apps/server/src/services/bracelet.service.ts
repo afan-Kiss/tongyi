@@ -7,6 +7,7 @@ import {
   todayStr,
 } from './inventory.service'
 import { DEFAULT_OUTBOUND_REMARK } from '../config/env'
+import { serializeExcelSyncMsg } from '../domain/excel-sync-msg'
 import { syncToExcelBridge } from './excel-bridge.service'
 
 export interface OutboundInput {
@@ -125,12 +126,7 @@ export async function applyOutbound(input: OutboundInput) {
     where: { id: log.id },
     data: {
       excelSynced: excelSync.ok,
-      excelSyncMsg: JSON.stringify({
-        message: excelSync.message,
-        row: excelSync.row,
-        sheet: excelSync.sheet,
-        hasSnapshot: !!excelSync.snapshotBase64,
-      }),
+      excelSyncMsg: serializeExcelSyncMsg(excelSync),
     },
   })
 
@@ -179,12 +175,7 @@ export async function applyInbound(input: InboundInput) {
     where: { id: log.id },
     data: {
       excelSynced: excelSync.ok,
-      excelSyncMsg: JSON.stringify({
-        message: excelSync.message,
-        row: excelSync.row,
-        sheet: excelSync.sheet,
-        hasSnapshot: !!excelSync.snapshotBase64,
-      }),
+      excelSyncMsg: serializeExcelSyncMsg(excelSync),
     },
   })
 
@@ -233,12 +224,7 @@ export async function createBracelet(input: NewBraceletInput) {
     where: { id: log.id },
     data: {
       excelSynced: excelSync.ok,
-      excelSyncMsg: JSON.stringify({
-        message: excelSync.message,
-        row: excelSync.row,
-        sheet: excelSync.sheet,
-        hasSnapshot: !!excelSync.snapshotBase64,
-      }),
+      excelSyncMsg: serializeExcelSyncMsg(excelSync),
     },
   })
 

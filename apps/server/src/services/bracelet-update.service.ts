@@ -1,12 +1,13 @@
-import { isExcelBridgeEnabled } from '../config/env'
 import { normalizeCertNo } from '../domain/inventory.rules'
 import type { BraceletDetailInput } from '../repositories/detail.repository'
 import { braceletRepo } from '../repositories/bracelet.repository'
 import { detailRepo } from '../repositories/detail.repository'
-import { syncUpdateRowToExcel } from '../adapters/excel/excel-live.adapter'
 import { queryByCertNo } from './inventory-query.service'
 import { ensureDetailRecord } from './detail.service'
 import type { ExcelSyncResult } from '../types/api.types'
+
+/** 编辑库存详情时返回：Excel 仅允许出入库流程修改 */
+export const EXCEL_EDIT_SKIPPED_MSG = '已保存到数据库（未修改 Excel；变更 Excel 请做出库/入库）'
 
 const READONLY_FIELDS = [
   'certNo', 'qty', 'soldDate', 'actualPrice', 'returnDate', 'orderNo',
@@ -55,29 +56,12 @@ export async function updateBraceletByCert(certNo: string, input: BraceletUpdate
     await detailRepo.upsert(bracelet.id, input.detail)
   }
 
-  let excelSync: ExcelSyncResult = { ok: true, message: '未同步 Excel（无行号或未启用桥接）' }
-  const updated = await braceletRepo.findByCert(code)
-  if (!updated) return { ok: false as const, message: '更新后读取失败' }
-
-  if (isExcelBridgeEnabled() && updated.excelRow) {
-    excelSync = await syncUpdateRowToExcel({
-      certNo: code,
-      excelRow: updated.excelRow,
-      excelSheet: updated.excelSheet,
-      arrivalDate: updated.arrivalDate,
-      batch: updated.batch,
-      category: updated.category,
-      ringSize: updated.ringSize,
-      cost: updated.cost,
-      remark: updated.remark,
-    })
-  }
-
   const presented = await queryByCertNo(code)
+  const excelSync: ExcelSyncResult = { ok: true, message: EXCEL_EDIT_SKIPPED_MSG }
   return {
     ok: true as const,
     bracelet: presented,
     excelSync,
-    partialSuccess: !excelSync.ok && isExcelBridgeEnabled() && !!updated.excelRow,
+    partialSuccess: false,
   }
 }

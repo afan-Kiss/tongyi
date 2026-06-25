@@ -70,18 +70,10 @@ export async function syncNewInboundToExcel(payload: Record<string, unknown>): P
   }
 }
 
-export async function syncUpdateRowToExcel(payload: Record<string, unknown>): Promise<ExcelSyncResult> {
-  if (!isExcelBridgeEnabled()) {
-    return { ok: false, message: 'Excel 实时同步未启用' }
-  }
-  try {
-    return await callBridge('/sync/update_row', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-  } catch (e) {
-    return { ok: false, message: `Excel 桥接不可用: ${e instanceof Error ? e.message : String(e)}` }
+export async function syncUpdateRowToExcel(_payload: Record<string, unknown>): Promise<ExcelSyncResult> {
+  return {
+    ok: false,
+    message: 'Excel 仅允许通过出库/入库修改，不支持直接改行',
   }
 }
 

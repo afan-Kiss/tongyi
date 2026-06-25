@@ -156,11 +156,25 @@ if exist agents\excel-bridge\requirements.txt (
 
 
 
+if exist agents\print-agent\requirements.txt (
+
+  pushd agents\print-agent
+
+  if not exist .venv python -m venv .venv
+
+  call .venv\Scripts\activate.bat
+
+  pip install -r requirements.txt -q
+
+  popd
+
+)
+
+
+
 set NODE_OPTIONS=--max-old-space-size=4096
 
 call npm run build
-
-set NODE_OPTIONS=
 
 if errorlevel 1 (
 
@@ -191,6 +205,12 @@ echo.
 
 
 set NODE_ENV=production
+
+rem 运行时也给 Node 4GB 堆，避免长时间运行后 OOM
+set NODE_OPTIONS=--max-old-space-size=4096
+
+rem 允许手机访问拍照 HTTPS 端口（4730，与主服务同进程）
+netsh advfirewall firewall add rule name="Jade Mobile Camera HTTPS" dir=in action=allow protocol=TCP localport=4730 >nul 2>&1
 
 call npm run start:all
 

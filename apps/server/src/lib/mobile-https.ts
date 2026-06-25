@@ -1,22 +1,15 @@
 import fs from 'node:fs'
 import https from 'node:https'
-import os from 'node:os'
 import path from 'node:path'
 
 import selfsigned from 'selfsigned'
 import type { Application } from 'express'
 
 import { getDataDir, getMobileHttpsPort } from '../config/env'
+import { getLanIps } from '../services/settings.service'
 
 function collectLanIps(): string[] {
-  const nets = os.networkInterfaces()
-  const ips: string[] = []
-  for (const name of Object.keys(nets)) {
-    for (const net of nets[name] || []) {
-      if (net.family === 'IPv4' && !net.internal) ips.push(net.address)
-    }
-  }
-  return ips
+  return getLanIps()
 }
 
 function certDir(): string {

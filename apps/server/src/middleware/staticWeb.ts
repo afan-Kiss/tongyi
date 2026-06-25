@@ -32,15 +32,39 @@ export function mountWebStatic(app: Express): boolean {
     res.sendFile(indexHtml)
   }
 
+  const mobileCameraHtml = path.join(dist, 'mobile-camera.html')
+  const sendMobileCamera = (_req: Request, res: Response) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
+    res.setHeader('Permissions-Policy', 'camera=(self)')
+    if (fs.existsSync(mobileCameraHtml)) {
+      res.sendFile(mobileCameraHtml)
+      return
+    }
+    sendSpa(_req, res)
+  }
+
+  const redirectMobileCamera = (req: Request, res: Response) => {
+    const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''
+    res.redirect(302, `/inventory/mobile-camera${qs}`)
+  }
+
+  app.get('/m', redirectMobileCamera)
+  app.get('/mobile/capture', redirectMobileCamera)
+
+  app.get('/inventory/mobile/capture', redirectMobileCamera)
+
+  app.get('/inventory/mobile-camera', sendMobileCamera)
   app.get(
     [
       '/',
+      '/login',
       '/inventory',
       '/inventory/scan',
       '/inventory/stock',
       '/inventory/inbound',
       '/inventory/inventory',
       '/inventory/settings',
+      '/inventory/audit',
       '/xiangyu',
       '/scan',
       '/inbound',

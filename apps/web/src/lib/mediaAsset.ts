@@ -11,8 +11,8 @@ export function mediaAssetUrl(asset: MediaAsset): string {
 }
 
 export function mediaThumbUrl(asset: MediaAsset): string {
-  if (asset.thumbPath) return `/api/v1/media/file/${encodeMediaPath(asset.thumbPath)}`
   if (asset.thumbUrl) return asset.thumbUrl
+  if (asset.thumbPath) return `/api/v1/media/file/${encodeMediaPath(asset.thumbPath)}`
   return mediaAssetUrl(asset)
 }
 

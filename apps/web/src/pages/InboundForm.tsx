@@ -1,12 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
-import { useSearchParams } from 'react-router-dom'
-
-import { AnimatedTabs } from '@/components/ui/AnimatedTabs'
+import { Navigate, useSearchParams } from 'react-router-dom'
 
 import { CertNoAutocomplete } from '@/components/CertNoAutocomplete'
-
-import { ExcelSyncPanel } from '@/components/ExcelSyncPanel'
 
 import { InboundPhotoCapture, type InboundPhotoCaptureHandle } from '@/components/InboundPhotoCapture'
 
@@ -18,32 +14,17 @@ import { CertExistsDialog } from '@/components/CertExistsDialog'
 
 import { AppMessageDialog } from '@/components/AppMessageDialog'
 
-import { useRegisterInbound, useReturnInbound } from '@/hooks/useScanWorkbench'
+import { useRegisterInbound } from '@/hooks/useScanWorkbench'
 
 import { api } from '@/lib/api'
 
 import { printBraceletTag } from '@/lib/printBraceletTag'
 import { formatPrintSentMessage } from '@/lib/formatPrintSentMessage'
+import { formatPrintFailureDialog } from '@/lib/formatPrintError'
 
 import type { Bracelet, BraceletDetail, CertIndexEntry } from '@/api/types'
 
-import {
-
-  loadInboundKind,
-
-  loadNewInboundMemory,
-
-  loadReturnInboundMemory,
-
-  saveInboundKind,
-
-  saveNewInboundMemory,
-
-  saveReturnInboundMemory,
-
-  type InboundKind,
-
-} from '@/lib/inboundFormStorage'
+import { loadNewInboundMemory, saveNewInboundMemory } from '@/lib/inboundFormStorage'
 
 import { loadLabelPrintMemory, saveLabelPrintMemory, getBarcodeDigits, createDefaultLabelPrintMemory, type LabelPrintMemory } from '@/lib/labelPrintMemory'
 import { fillLabelLinesFromForm } from '@/lib/labelPrintSync'
@@ -68,27 +49,11 @@ const BASIC_FIELDS = [
 
 
 
-function parseInboundKind(raw: string | null): InboundKind {
-  if (raw === 'return') return 'return'
-  if (raw === 'register' || raw === 'new') return 'register'
-  return loadInboundKind()
-}
-
-
-
 export const InboundFormPage: React.FC = () => {
 
   const [params, setParams] = useSearchParams()
 
-  const initialKind = parseInboundKind(params.get('type'))
-
-  const [kind, setKind] = useState<InboundKind>(initialKind)
-
-
-
   const newMem = loadNewInboundMemory()
-
-  const returnMem = loadReturnInboundMemory()
 
 
 
@@ -115,19 +80,7 @@ export const InboundFormPage: React.FC = () => {
   const [detail, setDetail] = useState<Partial<BraceletDetail>>(newMem.detail)
   const [labelMemory, setLabelMemory] = useState<LabelPrintMemory>(() => loadLabelPrintMemory())
 
-  const [returnRemark, setReturnRemark] = useState(returnMem.remarkText)
-
-  const [returnCertNo, setReturnCertNo] = useState(() => {
-
-    return initialKind === 'return' ? urlCertNo : ''
-
-  })
-
-
-
   const [status, setStatus] = useState('')
-
-  const [lookupMsg, setLookupMsg] = useState('')
 
   const [certExists, setCertExists] = useState<{ certNo: string; bracelet?: Bracelet | null } | null>(null)
 
@@ -137,7 +90,6 @@ export const InboundFormPage: React.FC = () => {
     variant?: 'error' | 'success' | 'info'
   } | null>(null)
 
-  const [returnTarget, setReturnTarget] = useState<Bracelet | null>(null)
   const [registerTarget, setRegisterTarget] = useState<Bracelet | null>(null)
   const [registerLookupMsg, setRegisterLookupMsg] = useState('')
 
@@ -148,9 +100,6 @@ export const InboundFormPage: React.FC = () => {
   const photoRef = useRef<InboundPhotoCaptureHandle>(null)
 
   const registerInbound = useRegisterInbound()
-  const returnInbound = useReturnInbound()
-
-  const active = kind === 'register' ? registerInbound : returnInbound
 
   const loadFromExcel = useCallback(async (certOverride?: string) => {
     const code = (certOverride ?? form.certNo).trim().toUpperCase()
@@ -205,26 +154,11 @@ export const InboundFormPage: React.FC = () => {
   }, [])
 
   useEffect(() => {
-
-    saveInboundKind(kind)
-
     const next = new URLSearchParams()
-
-    next.set('type', kind)
-
-    if (kind === 'return') {
-
-      if (returnCertNo.trim()) next.set('certNo', returnCertNo.trim().toUpperCase())
-
-    } else if (form.certNo.trim()) {
-
-      next.set('certNo', form.certNo.trim().toUpperCase())
-
-    }
-
+    next.set('type', 'register')
+    if (form.certNo.trim()) next.set('certNo', form.certNo.trim().toUpperCase())
     setParams(next, { replace: true })
-
-  }, [kind, returnCertNo, form.certNo, setParams])
+  }, [form.certNo, setParams])
 
 
 
@@ -257,7 +191,6 @@ export const InboundFormPage: React.FC = () => {
   }, [labelMemory])
 
   useEffect(() => {
-    if (kind !== 'register') return
     setLabelMemory((mem) => {
       const next = fillLabelLinesFromForm(
         mem,
@@ -276,77 +209,11 @@ export const InboundFormPage: React.FC = () => {
         next.lineFormats.barcode === mem.lineFormats.barcode
       return unchanged ? mem : next
     })
-  }, [kind, form.certNo, form.ringSize, form.cost, form.batch])
-
-  useEffect(() => {
-
-    saveReturnInboundMemory({ remarkText: returnRemark })
-
-  }, [returnRemark])
-
-
-
-  useEffect(() => {
-
-    const code = returnCertNo.trim().toUpperCase()
-
-    if (kind !== 'return' || !code) {
-
-      setReturnTarget(null)
-
-      setLookupMsg('')
-
-      return
-
-    }
-
-    let cancelled = false
-
-    setLookupMsg('正在查询…')
-
-    api.getByCert(code)
-
-      .then((r) => {
-
-        if (cancelled) return
-
-        const b = r.data
-
-        setReturnTarget(b)
-
-        if (b.qty === 1) {
-
-          setLookupMsg(`${code} 已在库，无需退货入库`)
-
-        } else {
-
-          setLookupMsg(
-
-            `已售出${b.soldDate ? `（${b.soldDate}）` : ''}${b.actualPrice ? ` · 售价 ${b.actualPrice}` : ''}，确认后恢复在库`,
-
-          )
-
-        }
-
-      })
-
-      .catch((e) => {
-
-        if (cancelled) return
-
-        setReturnTarget(null)
-
-        setLookupMsg(e instanceof Error ? e.message : String(e))
-
-      })
-
-    return () => { cancelled = true }
-
-  }, [kind, returnCertNo])
+  }, [form.certNo, form.ringSize, form.cost, form.batch])
 
   useEffect(() => {
     const code = form.certNo.trim().toUpperCase()
-    if (kind !== 'register' || !code) {
+    if (!code) {
       setRegisterTarget(null)
       setRegisterLookupMsg('')
       return
@@ -372,7 +239,7 @@ export const InboundFormPage: React.FC = () => {
       })
 
     return () => { cancelled = true }
-  }, [kind, form.certNo])
+  }, [form.certNo])
 
   const isCertExistsError = (msg: string) => msg.includes('已存在') || msg.includes('已在系统中')
 
@@ -451,10 +318,13 @@ export const InboundFormPage: React.FC = () => {
         setStatus(photoWarn ? `${dialogMsg} · ${photoWarn}` : dialogMsg)
         setMessageDialog({ title: '打印已发送', message: dialogMsg, variant: 'success' })
       } catch (e) {
-        const err = e instanceof Error ? e.message : String(e)
-        const fail = photoWarn ? `${msg} · ${photoWarn} · 打印失败：${err}` : `${msg}，但打印失败：${err}`
-        setStatus(fail)
-        setMessageDialog({ title: '打印失败', message: fail, variant: 'error' })
+        const { title, message } = formatPrintFailureDialog(e)
+        setStatus(photoWarn ? `${msg} · ${photoWarn}` : `${msg}（打印失败）`)
+        setMessageDialog({
+          title,
+          message: photoWarn ? `${photoWarn}\n\n${message}` : message,
+          variant: 'error',
+        })
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
@@ -477,91 +347,18 @@ export const InboundFormPage: React.FC = () => {
 
 
 
-  const onSubmitReturn = async () => {
-
-    const code = returnCertNo.trim().toUpperCase()
-
-    if (!code) {
-
-      setStatus('请填写编号')
-
-      return
-
-    }
-
-    if (!returnTarget) {
-
-      setStatus(lookupMsg || '请先查询有效编号')
-
-      return
-
-    }
-
-    if (returnTarget.qty === 1) {
-
-      setStatus(`${code} 已在库`)
-
-      return
-
-    }
-
-    try {
-
-      const data = await returnInbound.submit(code, returnRemark)
-
-      setCreated(data.bracelet)
-
-      setStatus(data.partialSuccess ? '退货入库成功（Excel 待同步）' : '退货入库成功')
-
-    } catch (e) {
-
-      setStatus(e instanceof Error ? e.message : String(e))
-
-    }
-
+  if (params.get('type') === 'return') {
+    return <Navigate to="/inventory/scan" replace />
   }
-
-
-
-  const switchKind = (next: InboundKind) => {
-
-    setKind(next)
-
-    setStatus('')
-
-    setCreated(null)
-
-    active.clearExcelSync()
-
-  }
-
-
 
   return (
 
-    <div className="mx-auto max-w-lg space-y-4">
+    <div className="mx-auto max-w-6xl space-y-4">
 
-      <h2 className="text-xl font-semibold text-slate-900">入库</h2>
+      <h2 className="text-xl font-semibold text-slate-900">标签入库</h2>
 
-
-
-      <AnimatedTabs
-
-        items={[
-          { key: 'register', label: '标签入库' },
-          { key: 'return', label: '退货入库' },
-        ]}
-
-        activeKey={kind}
-
-        onChange={(k) => switchKind(k as InboundKind)}
-
-      />
-
-
-
-      {kind === 'register' ? (
-        <>
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_400px] lg:items-start lg:gap-5 xl:gap-6">
+          <div className="min-w-0 space-y-4">
           <p className="text-xs text-slate-500">
             Excel 里已有信息的镯子：填写编号与信息，登记进系统后打印吊牌贴标。<strong>不会修改 Excel</strong>。
           </p>
@@ -595,40 +392,6 @@ export const InboundFormPage: React.FC = () => {
             )}
           </div>
 
-
-
-          <div className="rounded-2xl border border-rose-50 bg-rose-50/20 p-4 shadow-sm">
-
-            <h3 className="mb-2 text-sm font-semibold text-slate-800">基础信息（同步 Excel）</h3>
-
-            <div className="grid gap-3">
-
-              {BASIC_FIELDS.map(([key, label]) => (
-
-                <label key={key} className="block text-sm">
-
-                  <span className="text-slate-500">{label}</span>
-
-                  <input
-
-                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
-
-                    value={form[key]}
-
-                    onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-
-                  />
-
-                </label>
-
-              ))}
-
-            </div>
-
-          </div>
-
-
-
           <div className="rounded-2xl border border-emerald-100 bg-emerald-50/20 p-4 shadow-sm">
             <h3 className="mb-2 text-sm font-semibold text-slate-800">内部备注（仅存数据库）</h3>
             <label className="block text-sm">
@@ -641,17 +404,6 @@ export const InboundFormPage: React.FC = () => {
                 placeholder="仅内部查看，不打印、不同步 Excel"
               />
             </label>
-          </div>
-
-          <div className="rounded-2xl border border-violet-100 bg-violet-50/20 p-4 shadow-sm">
-            <h3 className="mb-1 text-sm font-semibold text-slate-800">实时拍照</h3>
-            <p className="mb-2 text-[11px] text-slate-500">电脑填标签，手机扫一次码即可；换编号不用重扫，画面实时同步</p>
-            <InboundPhotoCapture
-              ref={photoRef}
-              certNo={form.certNo}
-              deferUpload
-              disabled={submitting}
-            />
           </div>
 
           <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4 shadow-sm">
@@ -673,10 +425,9 @@ export const InboundFormPage: React.FC = () => {
               bracelet={registerTarget}
               hint={
                 registerTarget.qty === 1
-                  ? '该编号已在库，是否误操作需要出库？'
-                  : '该编号已出库，是否误操作需要恢复在库？'
+                  ? '该编号已在库，是否需要出库？'
+                  : '该编号已出库，是否需要重新入库？'
               }
-              defaultInboundRemark="误出库恢复"
               onUpdated={(b) => {
                 setRegisterTarget(b)
                 setRegisterLookupMsg(
@@ -698,139 +449,44 @@ export const InboundFormPage: React.FC = () => {
             {submitting ? '处理中…' : '确认登记并打印吊牌'}
           </button>
 
-        </>
+          {status && <p className="text-center text-sm text-slate-600">{status}</p>}
 
-      ) : (
-
-        <>
-
-          <p className="text-xs text-slate-500">
-
-            扫已售出的编号：恢复在库、写入退货日期，并清空售出/售价。退货备注会自动记住上次内容。
-
-          </p>
-
-
-
-          <div className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm space-y-3">
-
-            <label className="block text-sm">
-
-              <span className="text-slate-500">编号 *</span>
-
-              <CertNoAutocomplete
-
-                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
-
-                value={returnCertNo}
-
-                onChange={setReturnCertNo}
-
-                placeholder="扫已售出的编号，输入时联想"
-
-              />
-
-            </label>
-
-            {lookupMsg && (
-
-              <p className={`text-xs ${returnTarget?.qty === 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
-
-                {lookupMsg}
-
-              </p>
-
-            )}
-
-            {returnTarget && (
-
-              <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-50 p-3 text-xs">
-
-                <div><span className="text-slate-400">圈口</span> {returnTarget.ringSize || '—'}</div>
-
-                <div><span className="text-slate-400">批次</span> {returnTarget.batch || '—'}</div>
-
-                <div><span className="text-slate-400">售出</span> {returnTarget.soldDate || '—'}</div>
-
-                <div><span className="text-slate-400">售价</span> {returnTarget.actualPrice || '—'}</div>
-
-              </div>
-
-            )}
-
-            <label className="block text-sm">
-
-              <span className="text-slate-500">退货备注（写入 Excel 备注列）</span>
-
-              <input
-
-                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
-
-                value={returnRemark}
-
-                onChange={(e) => setReturnRemark(e.target.value)}
-
-                placeholder="退货入库"
-
-              />
-
-            </label>
-
+          {created && (
+            <LabelPrintPanel bracelet={created} label="重新打印吊牌" labelMemory={labelMemory} />
+          )}
           </div>
 
-
-
-          <button
-
-            type="button"
-
-            onClick={onSubmitReturn}
-
-            disabled={!returnTarget || returnTarget.qty === 1}
-
-            className="w-full rounded-full bg-gradient-to-r from-[#ff2442] to-[#ff6b81] py-2.5 text-sm font-semibold text-white disabled:opacity-50"
-
+          <aside
+            className="inbound-photo-sticky order-first mb-1 flex w-full shrink-0 flex-col gap-4 rounded-2xl border border-violet-200/80 bg-violet-50/30 p-4 shadow-sm backdrop-blur-sm lg:order-none lg:mb-0"
           >
-
-            确认退货入库
-
-          </button>
-
-          {returnTarget?.qty === 1 && (
-            <StockOpPanel
-              bracelet={returnTarget}
-              hint="该编号已在库，是否误操作需要出库？"
-              onUpdated={(b) => {
-                setReturnTarget(b)
-                setLookupMsg(`${b.certNo} 已出库`)
-                emitInventoryRefresh()
-              }}
-            />
-          )}
-
-        </>
-
-      )}
-
-
-
-      {status && <p className="text-center text-sm text-slate-600">{status}</p>}
-
-      {(active.excelLoading || active.excelSync || active.partialSuccess) && kind === 'return' && (
-        <ExcelSyncPanel
-          result={active.excelSync}
-          loading={active.excelLoading}
-          partialSuccess={active.partialSuccess}
-          partialMessage={active.partialMessage}
-          onRefresh={created ? () => active.refreshSnapshot(created.certNo) : undefined}
-          onRetry={active.partialSuccess ? active.retryExcel : undefined}
-          onClose={active.clearExcelSync}
-        />
-      )}
-
-      {created && kind === 'register' && (
-        <LabelPrintPanel bracelet={created} label="重新打印吊牌" labelMemory={labelMemory} />
-      )}
+            <div>
+              <h3 className="mb-1 text-sm font-semibold text-slate-800">实时拍照</h3>
+              <p className="mb-2 text-[11px] text-slate-500">电脑填标签，手机扫一次码即可；换编号不用重扫，画面实时同步</p>
+              <InboundPhotoCapture
+                ref={photoRef}
+                certNo={form.certNo}
+                deferUpload
+                disabled={submitting}
+                stacked
+              />
+            </div>
+            <div className="rounded-2xl border border-rose-50 bg-rose-50/20 p-4 shadow-sm">
+              <h3 className="mb-2 text-sm font-semibold text-slate-800">基础信息（同步 Excel）</h3>
+              <div className="grid gap-3 lg:grid-cols-2">
+                {BASIC_FIELDS.map(([key, label]) => (
+                  <label key={key} className="block text-sm">
+                    <span className="text-slate-500">{label}</span>
+                    <input
+                      className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+                      value={form[key]}
+                      onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+          </aside>
+        </div>
 
       <CertExistsDialog
         open={certExists !== null}

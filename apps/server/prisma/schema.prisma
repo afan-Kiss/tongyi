@@ -64,9 +64,10 @@ model MediaAsset {
   filename    String
   path        String
   thumbPath   String?
-  mimeType    String?
-  sizeBytes   Int      @default(0)
-  createdAt   DateTime @default(now())
+  mimeType        String?
+  sizeBytes       Int      @default(0)
+  watermarkBaked  Boolean  @default(false)
+  createdAt       DateTime @default(now())
 }
 
 model OperationLog {
@@ -97,4 +98,21 @@ model LabelTemplate {
 model AppSettings {
   id    String @id @default("singleton")
   json  String @default("{}")
+}
+
+/// 用户行为审计（登录、点击、页面、API 等），仅 fanfan 可查看
+model UserActivityLog {
+  id         String   @id @default(uuid())
+  username   String?
+  category   String
+  action     String
+  path       String?
+  detailJson String   @default("{}")
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([username])
+  @@index([category])
 }

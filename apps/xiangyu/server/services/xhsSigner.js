@@ -120,6 +120,43 @@ function signPostHeaders(url, body, cookie, xsecAppId = 'seller') {
   throw new XhsSignError(`${XHS_SIGN_ERROR}：${lastErr?.message || '未知错误'}`);
 }
 
+function signGetHeaders(url, queryParams, cookie, xsecAppId = 'seller') {
+  const cookies = parseCookieString(cookie);
+  const a1 = extractA1FromCookie(cookie);
+  if (!a1 && !Object.keys(cookies).length) {
+    throw new XhsSignError(`${XHS_SIGN_ERROR}（Cookie 为空或缺少 a1）`);
+  }
+
+  let uri;
+  try {
+    uri = new URL(url).pathname;
+  } catch {
+    uri = url;
+  }
+
+  const client = new Client();
+  const appIds = [xsecAppId, 'seller', 'xhs-pc-web'];
+  let lastErr = null;
+
+  for (const appId of appIds) {
+    try {
+      const xs = client.signXS('GET', uri, a1 || cookies.a1, appId, queryParams || {});
+      if (!xs) continue;
+      return {
+        'x-s': xs,
+        'x-t': String(client.getXT()),
+        'x-s-common': client.signXSCommon({ a1: a1 || cookies.a1, ...cookies }),
+        'x-b3-traceid': client.getB3TraceId(),
+        'x-xray-traceid': client.getXrayTraceId(),
+      };
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+
+  throw new XhsSignError(`${XHS_SIGN_ERROR}：${lastErr?.message || '未知错误'}`);
+}
+
 module.exports = {
   XhsSignError,
   parseCookieString,
@@ -128,4 +165,5 @@ module.exports = {
   extractA1FromCookie,
   extractAuthorizationFromCookie,
   signPostHeaders,
+  signGetHeaders,
 };

@@ -4,6 +4,7 @@ import { api, type DashboardStats } from '@/lib/api'
 import { emitInventoryRefresh } from '@/lib/inventoryRefresh'
 import { StatCard } from '@/components/ui/StatCard'
 import { BraceletDrawer } from '@/components/BraceletDrawer'
+import { OperationLogList } from '@/components/OperationLogList'
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate()
@@ -49,26 +50,35 @@ export const DashboardPage: React.FC = () => {
         </div>
       )}
 
+      {stats && (stats.todayOutboundLogs?.length || stats.todayOutbound > 0) ? (
+        <section className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm">
+          <h3 className="mb-3 text-sm font-semibold text-slate-800">今日出库明细</h3>
+          <OperationLogList
+            logs={stats.todayOutboundLogs || []}
+            emptyText="今日暂无出库"
+            onOpen={openLog}
+          />
+        </section>
+      ) : null}
+
+      {stats && (stats.todayInboundLogs?.length || stats.todayInbound > 0) ? (
+        <section className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm">
+          <h3 className="mb-3 text-sm font-semibold text-slate-800">今日入库明细</h3>
+          <OperationLogList
+            logs={stats.todayInboundLogs || []}
+            emptyText="今日暂无入库"
+            onOpen={openLog}
+          />
+        </section>
+      ) : null}
+
       <section className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm">
         <h3 className="mb-3 text-sm font-semibold text-slate-800">最近操作</h3>
-        {!stats?.recentLogs?.length && <p className="text-sm text-slate-400">暂无记录</p>}
-        <div className="space-y-2">
-          {stats?.recentLogs?.map((log, i) => (
-            <button
-              key={log.id}
-              type="button"
-              className="board-stagger-item flex w-full items-center justify-between rounded-xl border border-rose-50 bg-rose-50/30 px-3 py-2 text-left text-sm hover:bg-rose-50"
-              style={{ '--i': i } as React.CSSProperties}
-              onClick={() => openLog(log.certNo)}
-            >
-              <span className="font-medium text-slate-800">{log.certNo}</span>
-              <span className="text-xs text-slate-500">
-                {log.opType === 'outbound' ? '出库' : log.opType === 'inbound' ? '入库' : log.opType === 'register' ? '登记' : '新品'}
-                {log.reverted ? ' (已撤销)' : ''}
-              </span>
-            </button>
-          ))}
-        </div>
+        <OperationLogList
+          logs={stats?.recentLogs || []}
+          emptyText="暂无记录"
+          onOpen={openLog}
+        />
       </section>
 
       <BraceletDrawer
@@ -86,6 +96,8 @@ export const DashboardPage: React.FC = () => {
                   inStock: deletedQty === 1 ? Math.max(0, prev.inStock - 1) : prev.inStock,
                   outOfStock: deletedQty === 0 ? Math.max(0, prev.outOfStock - 1) : prev.outOfStock,
                   recentLogs: prev.recentLogs.filter((l) => l.certNo !== certNo),
+                  todayOutboundLogs: prev.todayOutboundLogs?.filter((l) => l.certNo !== certNo),
+                  todayInboundLogs: prev.todayInboundLogs?.filter((l) => l.certNo !== certNo),
                 }
               : prev,
           )

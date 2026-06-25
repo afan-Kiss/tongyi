@@ -6,12 +6,22 @@ import { excelV1Router } from './excel.routes'
 import { settingsV1Router } from './settings.routes'
 import { detailRouter } from './detail.routes'
 import { photoRelayRouter } from './photo-relay.routes'
+import { auditIngestRouter, auditRouter } from './audit.routes'
+import { getMobileCameraNetworkInfo } from '../../lib/mobile-camera-url'
+import { auditApiLogMiddleware } from '../../middleware/auditApiLog'
 import { sendErr } from '../../utils/api-response'
 
 export const v1Router = Router()
 
+v1Router.use(auditApiLogMiddleware)
+
 v1Router.get('/health', (_req, res) => {
-  res.json({ ok: true, service: 'jade-inventory-api', version: 'v1' })
+  res.json({
+    ok: true,
+    service: 'jade-inventory-api',
+    version: 'v1',
+    mobile: getMobileCameraNetworkInfo(),
+  })
 })
 
 v1Router.use('/operations', operationsRouter)
@@ -22,12 +32,14 @@ v1Router.use('/settings', settingsV1Router)
 
 v1Router.use('/detail', detailRouter)
 v1Router.use('/photo-relay', photoRelayRouter)
+v1Router.use('/audit', auditIngestRouter)
+v1Router.use('/audit', auditRouter)
 
 v1Router.post('/print/bracelet-tag', async (req, res) => {
-  const { getPrintAgentUrl } = await import('../../config/env')
   const { queryByCertNo } = await import('../../services/inventory-query.service')
   const { getSettings } = await import('../../services/settings.service')
   const { braceletRepo } = await import('../../repositories/bracelet.repository')
+  const { printBraceletTagWithRecovery } = await import('../../services/print-bracelet.service')
   try {
     let bracelet = req.body?.bracelet
     if (!bracelet?.certNo && req.body?.certNo) {
@@ -37,40 +49,31 @@ v1Router.post('/print/bracelet-tag', async (req, res) => {
       return sendErr(res, '缺少 bracelet 或 certNo', 400)
     }
     const settings = await getSettings()
-    const agentRes = await fetch(`${getPrintAgentUrl()}/print/bracelet-tag`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        bracelet,
-        template: req.body?.template,
-        printerName: req.body?.printerName || settings.printerName || undefined,
-        side: req.body?.side || 'both',
-      }),
-      signal: AbortSignal.timeout(20000),
+    const result = await printBraceletTagWithRecovery({
+      bracelet,
+      template: req.body?.template,
+      printerName: req.body?.printerName || settings.printerName || undefined,
+      side: req.body?.side || 'both',
     })
-    const data = (await agentRes.json().catch(() => ({ ok: false, message: '打印 Agent 返回无效响应' }))) as {
-      ok?: boolean
-      message?: string
+    if (!result.ok) {
+      return sendErr(res, result.message, 502, result.code, result.solutions)
     }
-    if (agentRes.ok) {
-      const lines = req.body?.template?.lines as { kind?: string; format?: string }[] | undefined
-      const barcodeLine = lines?.find((l) => l.kind === 'barcode')
-      const barcodeValue =
-        String(barcodeLine?.format || '').trim() ||
-        String((req.body?.bracelet as { barcodeValue?: string } | undefined)?.barcodeValue || '').trim()
-      if (barcodeValue) {
-        const row = await braceletRepo.findByCert(String(bracelet.certNo))
-        if (row) {
-          await braceletRepo.update(row.id, { barcodeValue })
-        }
+    const lines = req.body?.template?.lines as { kind?: string; format?: string }[] | undefined
+    const barcodeLine = lines?.find((l) => l.kind === 'barcode')
+    const barcodeValue =
+      String(barcodeLine?.format || '').trim() ||
+      String((req.body?.bracelet as { barcodeValue?: string } | undefined)?.barcodeValue || '').trim()
+    if (barcodeValue) {
+      const row = await braceletRepo.findByCert(String(bracelet.certNo))
+      if (row) {
+        await braceletRepo.update(row.id, { barcodeValue })
       }
     }
-    if (!agentRes.ok || data.ok === false) {
-      return sendErr(res, String(data?.message || '打印失败'), 502)
-    }
-    res.status(200).json(data)
+    res.status(200).json({ ok: true, message: result.message })
   } catch (e) {
-    sendErr(res, `打印 Agent 不可用: ${e instanceof Error ? e.message : String(e)}`, 502)
+    const { printFailureResponse } = await import('../../services/print-bracelet.service')
+    const fail = printFailureResponse(e instanceof Error ? e.message : String(e))
+    sendErr(res, fail.message, 502, fail.code, fail.solutions)
   }
 })
 

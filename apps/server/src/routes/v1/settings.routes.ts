@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { checkExcelBridgeHealth } from '../../adapters/excel/excel-live.adapter'
 import { getPrintAgentUrl } from '../../config/env'
 import { ensureDefaultLabelTemplate, getSettings, getSystemStatus, saveSettings } from '../../services/settings.service'
+import { recoverPrintAgent } from '../../services/print-agent-recovery.service'
 import { prisma } from '../../lib/prisma'
 import { sendOk } from '../../utils/api-response'
 
@@ -17,6 +18,11 @@ settingsV1Router.put('/', async (req, res) => {
 
 settingsV1Router.get('/status', async (_req, res) => {
   sendOk(res, await getSystemStatus())
+})
+
+settingsV1Router.post('/restart-print-agent', async (_req, res) => {
+  const result = await recoverPrintAgent('manual-restart')
+  sendOk(res, result)
 })
 
 settingsV1Router.get('/excel-bridge', async (_req, res) => {

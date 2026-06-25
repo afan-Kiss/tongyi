@@ -9,8 +9,19 @@ const {
   updateSettings,
   verifySettingsPassword,
 } = require('../config');
-const { getOrders, clearOrdersCache } = require('../services/orderService');
-const { resolveAccounts, clearOutboundAccountCache, getOutboundConfigPath } = require('../services/xhsAccountImport');
+const { getOrders, clearOrdersCache, searchOrders } = require('../services/orderService');
+const {
+  buildArkOrderDetailUrl,
+  buildArkAftersaleDetailUrl,
+  buildAftersaleDetailServiceUrl,
+  buildDetailServiceUrl,
+  requireAccountByShopName,
+  decodeShopQuery,
+  extractSellerUserIdFromCookie,
+  normalizePackageId,
+  normalizeReturnId,
+} = require('../services/arkSsoTicketService');
+const { resolveAccounts, clearOutboundAccountCache, getOutboundConfigPath, listEnabledAccounts } = require('../services/xhsAccountImport');
 const { debugLog } = require('../debugLog');
 const { sendImageToBuyer, sendVideoToBuyer, openSessionWithBuyer, checkBridgeHealth } = require('../services/bridgeService');
 const { mergeImagesVertically } = require('../services/imageService');
@@ -145,6 +156,86 @@ function createApiRouter() {
         prefaceEnabled: next.editor.prefaceEnabled !== false,
       },
     });
+  });
+
+  router.get('/orders/search', async (req, res) => {
+    const q = String(req.query.q || req.query.query || '').trim();
+    const days = Number(req.query.days || 30);
+    try {
+      const data = await searchOrders(q, { days });
+      res.json(data);
+    } catch (err) {
+      res.status(400).json({ error: err.message || '查询失败' });
+    }
+  });
+
+  /** 按匹配店铺 Cookie 换取 ticket 后跳转千帆售后/订单详情（跨店打开） */
+  router.get('/orders/ark-detail', async (req, res) => {
+    const returnId = normalizeReturnId(req.query.returnId || req.query.returnsId || '');
+    const packageId = normalizePackageId(req.query.packageId || req.query.orderNo || '');
+    const shop = decodeShopQuery(req.query.shop || req.query.shopTitle || '');
+    const wantJson = req.query.format === 'json' || String(req.headers.accept || '').includes('application/json');
+    if (!returnId && !packageId) {
+      return wantJson
+        ? res.status(400).json({ ok: false, error: '缺少售后单号或订单号' })
+        : res.status(400).json({ error: '缺少售后单号或订单号' });
+    }
+    try {
+      const config = loadConfig();
+      const accounts = listEnabledAccounts(config);
+      if (!accounts.length) {
+        const err = '未配置店铺 Cookie';
+        return wantJson ? res.status(400).json({ ok: false, error: err }) : res.status(400).json({ error: err });
+      }
+      const matched = requireAccountByShopName(accounts, shop);
+      if (!matched.ok) {
+        return wantJson
+          ? res.status(400).json({ ok: false, error: matched.error })
+          : res.status(400).json({ error: matched.error });
+      }
+      const account = matched.account;
+      const meta = {
+        shopTitle: account.name || shop,
+        sellerUserId: extractSellerUserIdFromCookie(account.cookie),
+      };
+      const serviceUrl = returnId
+        ? buildAftersaleDetailServiceUrl(returnId)
+        : buildDetailServiceUrl(packageId);
+      const url = returnId
+        ? await buildArkAftersaleDetailUrl(returnId, account.cookie, meta)
+        : await buildArkOrderDetailUrl(packageId, account.cookie, meta);
+      const hasTicket = /ticket=ST-/.test(url);
+      if (wantJson) {
+        return res.json({
+          ok: hasTicket,
+          url,
+          serviceUrl,
+          shop: account.name || shop,
+          error: hasTicket
+            ? undefined
+            : '未能换取 SSO ticket，请先打开该店铺千帆客服工作台并保持登录，再重试',
+        });
+      }
+      if (!hasTicket) {
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.end(`<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>打开千帆售后详情</title>
+<style>body{font-family:system-ui,sans-serif;max-width:520px;margin:48px auto;padding:0 16px;color:#334155}
+.box{background:#fff7ed;border:1px solid #fdba74;border-radius:12px;padding:16px;margin:16px 0}
+a.btn{display:inline-block;margin-top:12px;padding:10px 16px;background:#7c3aed;color:#fff;text-decoration:none;border-radius:8px}
+</style></head><body>
+<h1>未能自动切换店铺</h1>
+<div class="box"><p>查到的订单属于<strong>${account.name || shop}</strong>，但链接里缺少 SSO ticket，浏览器仍停留在当前登录店铺（如拾玉居）时会打不开。</p>
+<p>请先<strong>打开千帆客服工作台</strong>（与发买家消息同一套），保持登录后再点一次「千帆详情」。</p>
+<p>或手动在千帆右上角切换到「${account.name || shop}」后，再打开下方链接。</p></div>
+<p><a class="btn" href="${url.replace(/"/g, '&quot;')}" target="_blank" rel="noopener">仍打开售后页（可能需手动切店）</a></p>
+<script>setTimeout(function(){ location.replace(${JSON.stringify(url)}); }, 2500);</script>
+</body></html>`);
+        return;
+      }
+      return res.redirect(302, url);
+    } catch (err) {
+      return res.status(500).json({ error: String(err.message || err) });
+    }
   });
 
   router.get('/orders', async (req, res) => {

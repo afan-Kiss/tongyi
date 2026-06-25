@@ -11,7 +11,7 @@ export function formatRingSizeForLabel(raw: string | null | undefined): string {
   return s
 }
 
-function formatPriceForLabel(raw: string | null | undefined): string {
+export function formatPriceForLabel(raw: string | null | undefined): string {
   const s = raw?.trim() ?? ''
   if (!s) return ''
   const n = Number(s.replace(/,/g, ''))
@@ -21,7 +21,7 @@ function formatPriceForLabel(raw: string | null | undefined): string {
   return `售价:${body}元`
 }
 
-/** 吊牌售价 = 成本 × 3（与条形码中间段规则一致） */
+/** 吊牌售价 = 成本 × 3 */
 export function computeLabelPriceFromCost(cost: string | null | undefined): string | null {
   const costN = parseNumber(cost)
   if (costN === null) return null
@@ -95,6 +95,8 @@ export function fillLabelLinesFromBracelet(
   },
 ): LabelPrintMemory {
   const lineFormats = { ...memory.lineFormats }
+  const defaultWarning = DEFAULT_LABEL_LINES.find((l) => l.id === 'warning')?.format
+  if (defaultWarning && !lineFormats.warning?.trim()) lineFormats.warning = defaultWarning
   const defaultTitle = DEFAULT_LABEL_LINES.find((l) => l.id === 'title')?.format
   if (defaultTitle) lineFormats.title = defaultTitle
   const certNo = bracelet.certNo?.trim().toUpperCase()
@@ -105,8 +107,13 @@ export function fillLabelLinesFromBracelet(
   if (labelPrice) {
     lineFormats.price = labelPrice
   } else {
-    const defaultPrice = DEFAULT_LABEL_LINES.find((l) => l.id === 'price')?.format
-    if (defaultPrice) lineFormats.price = defaultPrice
+    const priceDigits = computeLabelPriceFromCost(bracelet.cost)
+    if (priceDigits) {
+      lineFormats.price = formatPriceForLabel(priceDigits)
+    } else {
+      const defaultPrice = DEFAULT_LABEL_LINES.find((l) => l.id === 'price')?.format
+      if (defaultPrice) lineFormats.price = defaultPrice
+    }
   }
 
   const stored = bracelet.barcodeValue?.trim()

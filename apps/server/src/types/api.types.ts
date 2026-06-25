@@ -10,6 +10,8 @@ export interface ApiError {
   ok: false
   message: string
   code?: string
+  /** 面向用户的处理步骤（打印故障等） */
+  solutions?: string[]
 }
 
 export type ApiResponse<T> = ApiSuccess<T> | ApiError
@@ -23,6 +25,13 @@ export interface ExcelSyncResult {
   snapshotBase64?: string
   beforeSnapshotBase64?: string
   afterSnapshotBase64?: string
+  /** 打开详情时实时截取的 Excel 行现状 */
+  currentSnapshotBase64?: string
+  currentSyncedAt?: string
+  /** 现状截图失败时的原因（仍有改前/改后时可一并返回） */
+  currentSnapshotError?: string
+  /** 现状截图来自本地缓存（非实时截取） */
+  currentFromCache?: boolean
   syncedAt?: string
   verify?: Record<string, string>
 }

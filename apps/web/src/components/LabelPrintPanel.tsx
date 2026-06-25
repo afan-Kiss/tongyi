@@ -6,6 +6,7 @@ import { AppMessageDialog } from '@/components/AppMessageDialog'
 
 import { printBraceletTag } from '@/lib/printBraceletTag'
 import { formatPrintSentMessage } from '@/lib/formatPrintSentMessage'
+import { formatPrintFailureDialog } from '@/lib/formatPrintError'
 import type { LabelPrintMemory } from '@/lib/labelPrintMemory'
 
 interface Props {
@@ -41,9 +42,9 @@ export const LabelPrintPanel: React.FC<Props> = ({
       setStatus(msg)
       setMessageDialog({ title: '打印已发送', message: msg, variant: 'success' })
     } catch (e) {
-      const err = e instanceof Error ? e.message : String(e)
-      setStatus(err)
-      setMessageDialog({ title: '打印失败', message: err, variant: 'error' })
+      const { title, message } = formatPrintFailureDialog(e)
+      setStatus(message.split('\n')[0] || '打印失败')
+      setMessageDialog({ title, message, variant: 'error' })
     } finally {
       setPrinting(false)
     }

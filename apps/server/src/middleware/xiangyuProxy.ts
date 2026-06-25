@@ -1,8 +1,5 @@
-/**
- * 祥钰系统反向代理 — 单端口 4725 访问 iframe + API + 静态资源
- */
 import http from 'node:http'
-import type { Express, Request, Response } from 'express'
+import type { Express, NextFunction, Request, Response } from 'express'
 import { getXiangyuPort, isXiangyuEnabled } from '../config/env'
 
 export const XIANGYU_PROXY_PREFIX = '/xiangyu-proxy'
@@ -79,7 +76,7 @@ function proxyRequest(req: Request, res: Response): void {
   }
 }
 
-export function mountXiangyuProxy(app: Express): void {
+export function mountXiangyuProxy(app: Express, requireAuth?: (req: Request, res: Response, next: NextFunction) => void): void {
   if (!isXiangyuEnabled()) return
 
   app.use((req, res, next) => {
@@ -89,6 +86,10 @@ export function mountXiangyuProxy(app: Express): void {
       shouldProxyApi(p) ||
       shouldProxyStatic(p)
     ) {
+      if (requireAuth) {
+        requireAuth(req, res, () => proxyRequest(req, res))
+        return
+      }
       proxyRequest(req, res)
       return
     }

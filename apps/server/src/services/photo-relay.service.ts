@@ -3,6 +3,7 @@ import { normalizeCertNo } from '../domain/inventory.rules'
 
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000
 const PHONE_ONLINE_MS = 5000
+const MAX_STATION_SESSIONS = 24
 
 interface RelayPhoto {
   seq: number
@@ -33,6 +34,12 @@ function pruneSessions() {
   const now = Date.now()
   for (const [id, session] of sessions) {
     if (now - session.updatedAt > SESSION_TTL_MS) sessions.delete(id)
+  }
+  if (sessions.size <= MAX_STATION_SESSIONS) return
+  const sorted = [...sessions.entries()].sort((a, b) => a[1].updatedAt - b[1].updatedAt)
+  while (sessions.size > MAX_STATION_SESSIONS && sorted.length) {
+    const [id] = sorted.shift()!
+    sessions.delete(id)
   }
 }
 

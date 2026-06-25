@@ -5,10 +5,14 @@ import { api } from '@/lib/api'
 import {
   attachStreamToVideo,
   canUseLiveCamera,
-  captureVideoFrame,
+  capturePhotoFromStream,
+  capturePreviewFrame,
+  PREVIEW_STREAM_VIDEO_CONSTRAINTS,
   liveCameraBlockedReason,
-  normalizePhotoDataUrl,
+  photoRelayPreviewParams,
+  isLanPhotoRelay,
 } from '@/lib/media'
+import { RelayFpsMeter } from '@/lib/relayStreamFps'
 
 export const MobileCameraPage: React.FC = () => {
   const [params] = useSearchParams()
@@ -24,6 +28,8 @@ export const MobileCameraPage: React.FC = () => {
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const pushingRef = useRef(false)
+  const pushFpsMeterRef = useRef(new RelayFpsMeter())
+  const [pushFps, setPushFps] = useState(0)
   const prevCertRef = useRef('')
   const certNoRef = useRef('')
   const cameraActiveRef = useRef(false)
@@ -53,7 +59,7 @@ export const MobileCameraPage: React.FC = () => {
     setCameraActive(true)
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' } },
+        video: PREVIEW_STREAM_VIDEO_CONSTRAINTS,
         audio: false,
       })
       streamRef.current = stream
@@ -109,10 +115,16 @@ export const MobileCameraPage: React.FC = () => {
       return
     }
     let cancelled = false
+    const connectTimer = window.setTimeout(() => {
+      if (!cancelled) {
+        setStatus('连接超时：请确认与电脑同一网络；微信扫码请点「…」→ 在浏览器打开')
+      }
+    }, 15000)
     ;(async () => {
       try {
         const r = await api.getPhotoRelaySession(sessionId)
         if (cancelled) return
+        window.clearTimeout(connectTimer)
         applyCertNo(r.data.certNo)
         setStatus(r.data.certNo ? `编号 ${r.data.certNo} · 正在打开摄像头…` : '正在打开摄像头…')
         const ok = await startCamera()
@@ -121,11 +133,16 @@ export const MobileCameraPage: React.FC = () => {
           setStatus(code ? `编号 ${code} · 点下方按钮拍照` : '等待电脑填写编号…')
         }
       } catch (e) {
-        if (!cancelled) setStatus(e instanceof Error ? e.message : '会话无效或已过期')
+        if (!cancelled) {
+          window.clearTimeout(connectTimer)
+          const msg = e instanceof Error ? e.message : '会话无效或已过期'
+          setStatus(msg.includes('abort') || msg.includes('Abort') ? '连接超时，请检查网络或在浏览器中打开' : msg)
+        }
       }
     })()
     return () => {
       cancelled = true
+      window.clearTimeout(connectTimer)
       stopStream()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅 sessionId 变化时初始化
@@ -133,24 +150,34 @@ export const MobileCameraPage: React.FC = () => {
 
   useEffect(() => {
     if (!sessionId || !cameraActive) return
-    const pushFrame = async () => {
-      if (pushingRef.current) return
+    const { intervalMs } = photoRelayPreviewParams()
+    let cancelled = false
+    const tick = () => {
+      if (cancelled) return
       const video = videoRef.current
-      if (!video?.videoWidth) return
-      const frame = captureVideoFrame(video, 480, 0.55)
-      if (!frame) return
-      pushingRef.current = true
-      try {
-        await api.pushPhotoRelayFrame(sessionId, frame)
-      } catch {
-        /* 忽略单帧失败 */
-      } finally {
-        pushingRef.current = false
+      if (!video?.videoWidth) {
+        window.setTimeout(tick, intervalMs)
+        return
       }
+      const frame = capturePreviewFrame(video)
+      if (frame && !pushingRef.current) {
+        pushingRef.current = true
+        void api
+          .pushPhotoRelayFrame(sessionId, frame)
+          .then(() => {
+            if (isLanPhotoRelay()) setPushFps(pushFpsMeterRef.current.tick())
+          })
+          .catch(() => {})
+          .finally(() => {
+            pushingRef.current = false
+          })
+      }
+      window.setTimeout(tick, intervalMs)
     }
-    void pushFrame()
-    const timer = window.setInterval(pushFrame, 280)
-    return () => window.clearInterval(timer)
+    tick()
+    return () => {
+      cancelled = true
+    }
   }, [sessionId, cameraActive])
 
   useEffect(() => {
@@ -182,9 +209,8 @@ export const MobileCameraPage: React.FC = () => {
     }
     setShooting(true)
     try {
-      const raw = captureVideoFrame(video, 1280, 0.82)
-      if (!raw) throw new Error('拍照失败')
-      const photo = await normalizePhotoDataUrl(raw)
+      const photo = await capturePhotoFromStream(video, streamRef.current)
+      if (!photo) throw new Error('拍照失败')
       await api.shootPhotoRelay(sessionId, photo)
       setFlash(true)
       window.setTimeout(() => setFlash(false), 180)
@@ -207,9 +233,14 @@ export const MobileCameraPage: React.FC = () => {
   }
 
   return (
-    <div className="flex min-h-[100dvh] flex-col bg-slate-900 text-white">
+    <div className="flex min-h-[100dvh] flex-col overflow-hidden bg-slate-900 text-white">
       <header className="shrink-0 px-4 py-3 text-center">
         <p className="text-xs text-slate-400">手机拍照 · 保持此页开启，换编号不用重扫</p>
+        {/MicroMessenger/i.test(navigator.userAgent) && (
+          <p className="mt-1 text-[10px] leading-relaxed text-sky-300">
+            若一直转圈：点右上角 ··· → 在浏览器中打开
+          </p>
+        )}
         {window.isSecureContext && window.location.protocol === 'https:' && !window.location.hostname.includes('duckdns') && (
           <p className="mt-1 text-[10px] leading-relaxed text-slate-500">
             内网 HTTPS：若摄像头打不开，先点浏览器「高级」→「继续访问」信任证书
@@ -228,13 +259,13 @@ export const MobileCameraPage: React.FC = () => {
         </p>
       )}
 
-      <div className="relative mx-4 flex-1 overflow-hidden rounded-2xl bg-black">
+      <div className="relative mx-4 min-h-0 flex-1 overflow-hidden rounded-2xl bg-black">
         <video
           ref={videoRef}
           autoPlay
           playsInline
           muted
-          className={`h-full w-full object-cover ${cameraActive ? 'opacity-100' : 'opacity-0'}`}
+          className={`absolute inset-0 h-full w-full object-cover ${cameraActive ? 'opacity-100' : 'opacity-0'}`}
         />
         {!cameraActive && (
           <div className="absolute inset-0 flex flex-col items-center justify-center px-4 text-center text-slate-400">
@@ -254,7 +285,7 @@ export const MobileCameraPage: React.FC = () => {
         )}
         {cameraActive && (
           <span className="absolute right-3 top-3 rounded-full bg-black/50 px-2.5 py-1 text-[11px] font-medium">
-            实时传输中
+            {isLanPhotoRelay() && pushFps > 0 ? `上传 ${pushFps} FPS` : '实时传输中'}
           </span>
         )}
         {flash && (

@@ -49,15 +49,22 @@ export function toExcelOutboundPayload(bracelet: {
 }
 
 /** 入库时传给 Excel 桥接的最小 payload */
-export function toExcelInboundPayload(bracelet: {
-  certNo: string
-  excelRow?: number | null
-  excelSheet?: string | null
-}, remark: string, fullRemark?: string) {
+export function toExcelInboundPayload(
+  bracelet: {
+    certNo: string
+    excelRow?: number | null
+    excelSheet?: string | null
+  },
+  remark: string,
+  fullRemark?: string,
+  opts?: { recoveryOnly?: boolean },
+) {
+  const recoveryOnly = opts?.recoveryOnly ?? false
   return {
     certNo: bracelet.certNo,
     remark,
-    fullRemark: fullRemark ?? remark,
+    fullRemark: recoveryOnly ? undefined : (fullRemark ?? remark),
+    recoveryOnly,
     excelRow: bracelet.excelRow,
     excelSheet: bracelet.excelSheet,
   }

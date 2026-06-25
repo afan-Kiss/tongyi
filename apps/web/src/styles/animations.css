@@ -55,46 +55,38 @@
   to { opacity: 1; }
 }
 
-@keyframes drawer-slide-in {
-  from { opacity: 0; transform: translateX(100%); }
-  to { opacity: 1; transform: translateX(0); }
+@keyframes detail-modal-in {
+  from { opacity: 0; transform: scale(0.96) translateY(12px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
-.drawer-overlay {
+.detail-modal-root {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.45);
   z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+    max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  background: rgba(15, 23, 42, 0.45);
   animation: drawer-fade-in 0.2s ease both;
 }
 
-.drawer-panel {
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: min(420px, 100vw);
-  max-width: 100%;
+.detail-modal-panel {
+  width: min(720px, 100%);
+  max-height: min(90vh, 920px);
   background: linear-gradient(180deg, #fffaf8, #fff);
-  border-left: 1px solid rgba(255, 36, 66, 0.12);
-  box-shadow: -12px 0 40px rgba(15, 23, 42, 0.12);
-  z-index: 110;
+  border: 1px solid rgba(255, 36, 66, 0.12);
+  border-radius: 20px;
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.18);
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  animation: drawer-slide-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
-  padding-top: env(safe-area-inset-top);
-  padding-bottom: env(safe-area-inset-bottom);
+  animation: detail-modal-in 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-@media (max-width: 480px) {
-  .drawer-panel {
-    width: 100vw;
-    border-left: none;
-  }
-}
-
-.drawer-panel-inner {
+.detail-modal-panel-inner {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -102,8 +94,71 @@
   overscroll-behavior: contain;
 }
 
-.drawer-footer {
+.detail-modal-header {
+  z-index: 2;
+}
+
+.detail-modal-footer {
   padding-bottom: calc(12px + env(safe-area-inset-bottom));
+}
+
+.detail-modal-dual {
+  display: flex;
+  flex-direction: row;
+  gap: 14px;
+  width: min(1060px, 100%);
+  max-height: min(92vh, 940px);
+  align-items: stretch;
+  animation: detail-modal-in 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.detail-modal-single-wrap {
+  display: flex;
+  justify-content: center;
+  width: min(720px, 100%);
+  max-height: min(90vh, 920px);
+  animation: detail-modal-in 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.detail-modal-dual .detail-modal-panel,
+.detail-modal-single-wrap .detail-modal-panel {
+  animation: none;
+  max-height: min(92vh, 940px);
+}
+
+.detail-modal-panel--detail {
+  flex: 1 1 56%;
+  min-width: 0;
+  width: auto;
+}
+
+.detail-modal-panel--stock {
+  flex: 0 1 400px;
+  min-width: min(300px, 100%);
+  width: auto;
+  min-height: min(320px, 42vh);
+}
+
+.detail-modal-panel--stock-inner {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+@media (max-width: 768px) {
+  .detail-modal-dual {
+    flex-direction: column;
+    max-height: min(96vh, 980px);
+  }
+
+  .detail-modal-panel--detail,
+  .detail-modal-panel--stock {
+    flex: 1 1 auto;
+    max-height: min(48vh, 480px);
+    min-width: 0;
+  }
 }
 
 .mobile-bottom-nav {
@@ -131,10 +186,35 @@
   padding-bottom: calc(76px + env(safe-area-inset-bottom));
 }
 
-@media (max-width: 480px) {
-  .drawer-panel {
-    width: 100vw;
-    border-left: none;
+/** 标签入库：实时拍照侧栏吸顶，滚动表单时保持可见 */
+.inbound-photo-sticky {
+  position: sticky;
+  top: calc(var(--app-header-h, 4.25rem) + 0.5rem);
+  z-index: 30;
+  align-self: start;
+  max-height: calc(100dvh - var(--app-header-h, 4.25rem) - 1rem);
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.55) transparent;
+}
+
+.inbound-photo-sticky::-webkit-scrollbar {
+  width: 6px;
+}
+
+.inbound-photo-sticky::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.55);
+  border-radius: 999px;
+}
+
+@media (max-width: 767px) {
+  .inbound-photo-sticky {
+    top: calc(var(--app-header-h, 3.5rem) + 0.375rem);
+    max-height: calc(100dvh - var(--app-header-h, 3.5rem) - 5.5rem);
   }
 }
 
