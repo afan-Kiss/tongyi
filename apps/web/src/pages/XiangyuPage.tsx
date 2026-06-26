@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 
 import { RefreshCw } from 'lucide-react'
 
+import { XiangyuAccessQrDialog, XiangyuAccessQrFab } from '@/components/XiangyuAccessQrDialog'
 import { settingsApi } from '@/api/endpoints'
 import { useAuth } from '@/context/AuthContext'
 
@@ -13,6 +14,7 @@ export const XiangyuPage: React.FC = () => {
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(true)
   const [iframeKey, setIframeKey] = useState(0)
+  const [qrOpen, setQrOpen] = useState(true)
 
   const loadStatus = useCallback(async () => {
     if (!authed) return
@@ -43,6 +45,11 @@ export const XiangyuPage: React.FC = () => {
   useEffect(() => {
     if (authLoading || !authed || online !== true) return
     setIframeKey((k) => k + 1)
+  }, [authLoading, authed, online])
+
+  useEffect(() => {
+    if (authLoading || !authed || online !== true) return
+    setQrOpen(true)
   }, [authLoading, authed, online])
 
   if (authLoading || loading) {
@@ -78,12 +85,19 @@ export const XiangyuPage: React.FC = () => {
   }
 
   return (
-    <iframe
-      key={iframeKey}
-      src={PROXY_PATH}
-      title="祥钰珠宝 - 打包拍照发送"
-      className="h-[calc(100dvh-5.25rem)] w-full border-0 bg-white"
-      allow="camera; microphone"
-    />
+    <>
+      <XiangyuAccessQrDialog open={qrOpen} onClose={() => setQrOpen(false)} />
+      {!qrOpen && <XiangyuAccessQrFab onClick={() => setQrOpen(true)} />}
+
+      <div className="flex h-[calc(100dvh-5.25rem)] min-h-0 flex-col">
+        <iframe
+          key={iframeKey}
+          src={PROXY_PATH}
+          title="祥钰珠宝 - 打包拍照发送"
+          className="min-h-0 w-full flex-1 border-0 bg-white"
+          allow="camera; microphone"
+        />
+      </div>
+    </>
   )
 }

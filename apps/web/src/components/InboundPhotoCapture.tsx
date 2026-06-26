@@ -2,7 +2,7 @@ import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef,
 import QRCode from 'qrcode'
 import { Camera, ImagePlus, Smartphone, X } from 'lucide-react'
 import { api } from '@/lib/api'
-import { buildMobileCameraUrl, isHttpMobileCameraUrl, isPublicHttpsMobileCameraUrl, isSecureLanMobileCameraUrl, isSecureMobileCameraUrl } from '@/lib/photoRelayUrl'
+import { buildMobileCameraUrl, isSecureLanMobileCameraUrl } from '@/lib/photoRelayUrl'
 import { clearPhotoRelayStationId, loadPhotoRelayStationId, savePhotoRelayStationId } from '@/lib/photoRelayStation'
 import {
   attachStreamToVideo,
@@ -27,6 +27,8 @@ interface Props {
   ackRelayPhotos?: boolean
   /** 右侧固定栏：预览与二维码上下排列 */
   stacked?: boolean
+  /** 显示内网手机拍照扫码二维码 */
+  showQrPanel?: boolean
   onUploaded?: () => void | Promise<void>
 }
 
@@ -37,8 +39,19 @@ export interface InboundPhotoCaptureHandle {
 
 type PendingPhoto = { dataUrl: string; name: string }
 
+const MOBILE_QR_SCAN_HINT =
+  '请用 Safari、Chrome 或手机自带「相机」扫码打开，不要用微信扫一扫（微信无法调用摄像头）'
+
 export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(function InboundPhotoCapture(
-  { certNo, disabled, deferUpload = false, ackRelayPhotos = false, stacked = false, onUploaded },
+  {
+    certNo,
+    disabled,
+    deferUpload = false,
+    ackRelayPhotos = false,
+    stacked = false,
+    showQrPanel = true,
+    onUploaded,
+  },
   ref,
 ) {
   const useRelayMode = !isMobileDevice()
@@ -159,6 +172,10 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
   const applyMobileUrl = useCallback(async (url: string) => {
     setMobileUrl(url)
     setUrlCopied(false)
+    if (!url.trim()) {
+      setQrDataUrl('')
+      return
+    }
     setQrDataUrl(await QRCode.toDataURL(url, { width: 180, margin: 1, errorCorrectionLevel: 'M' }))
   }, [])
 
@@ -209,7 +226,7 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
     const relay = await api.getPhotoRelayStation()
     savePhotoRelayStationId(relay.data.sessionId)
     setSessionId(relay.data.sessionId)
-    await initStationQr(relay.data.sessionId, relay.data.mobileUrl)
+    await initStationQr(relay.data.sessionId, relay.data.mobileUrl || undefined)
     setStatus('已生成新二维码，请用手机重新扫码')
   }, [initStationQr])
 
@@ -223,7 +240,7 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
         if (cancelled) return
         savePhotoRelayStationId(relay.data.sessionId)
         setSessionId(relay.data.sessionId)
-        await initStationQr(relay.data.sessionId, relay.data.mobileUrl)
+        await initStationQr(relay.data.sessionId, relay.data.mobileUrl || undefined)
         setStatus('首次用手机扫码连接，之后换编号无需再扫')
       } catch (e) {
         if (!cancelled) setStatus(e instanceof Error ? e.message : String(e))
@@ -514,7 +531,11 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
               <div className={`flex h-full flex-col items-center justify-center bg-gradient-to-b from-slate-800 to-slate-900 px-4 text-center text-slate-300 ${stacked ? '' : 'min-h-[240px]'}`}>
                 <Smartphone size={40} className="mb-3 opacity-80" />
                 <p className="max-w-[240px] text-sm leading-relaxed">
-                  {phoneOnline ? '等待手机画面…' : '请用手机扫描二维码（只需扫一次）'}
+                  {phoneOnline
+                    ? '等待手机画面…'
+                    : showQrPanel
+                      ? '请用手机扫描二维码（只需扫一次）'
+                      : '等待手机连接…'}
                 </p>
               </div>
             )}
@@ -540,6 +561,7 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
             )}
           </div>
 
+          {showQrPanel && (
           <div className={qrPanelClass}>
             {phoneOnline ? (
               <>
@@ -557,41 +579,34 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
               </>
             ) : (
               <>
-                <p className="text-center text-[10px] font-medium text-slate-600">手机扫码（HTTPS · 一次）</p>
-                {isSecureLanMobileCameraUrl(mobileUrl) && (
+                <p className="text-center text-[10px] font-medium text-slate-600">内网 WiFi 扫码（只需一次）</p>
+                <p className="mt-1.5 rounded-lg border border-amber-100 bg-amber-50 px-2 py-1.5 text-center text-[9px] leading-relaxed text-amber-900">
+                  {MOBILE_QR_SCAN_HINT}
+                </p>
+                {isSecureLanMobileCameraUrl(mobileUrl) ? (
                   <p className="mt-1 text-center text-[9px] leading-relaxed text-emerald-600">
-                    同 WiFi 内网 HTTPS · 推荐
+                    手机与电脑需连<strong>同一 WiFi</strong>
                     <br />
-                    首次打开点「高级」→「继续访问」
+                    首次打开点「高级」→「继续访问」信任证书
                   </p>
-                )}
-                {isPublicHttpsMobileCameraUrl(mobileUrl) && (
-                  <p className="mt-1 text-center text-[9px] leading-relaxed text-amber-700">
-                    当前走公网域名（较慢）
-                    <br />
-                    同 WiFi 请确认电脑 4730 端口已启动
-                  </p>
-                )}
-                {isHttpMobileCameraUrl(mobileUrl) && (
+                ) : (
                   <p className="mt-1 text-center text-[9px] leading-relaxed text-red-600">
-                    当前为 HTTP，微信无法打开
-                    <br />
-                    请在设置页配置公网 HTTPS
+                    未检测到内网地址，请确认电脑已启动且手机与电脑同一 WiFi
                   </p>
                 )}
                 {qrDataUrl ? (
                   <img
                     src={qrDataUrl}
-                    alt="手机拍照二维码"
+                    alt="内网手机拍照二维码"
                     className={`mt-2 rounded-lg border border-slate-100 ${stacked ? 'mx-auto w-[160px]' : ''}`}
                   />
                 ) : (
                   <div
-                    className={`mt-2 flex items-center justify-center rounded-lg bg-slate-50 text-[10px] text-slate-400 ${
+                    className={`mt-2 flex items-center justify-center rounded-lg bg-slate-50 px-2 text-center text-[10px] text-slate-400 ${
                       stacked ? 'mx-auto h-[160px] w-[160px]' : 'h-[140px] w-[140px]'
                     }`}
                   >
-                    生成中…
+                    {mobileUrl ? '生成中…' : '无内网二维码，请检查 WiFi'}
                   </div>
                 )}
                 {mobileUrl && (
@@ -601,7 +616,7 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
                       onClick={() => void copyMobileUrl()}
                       className="mt-2 w-full rounded-lg border border-violet-200 bg-violet-50 px-2 py-1.5 text-[10px] font-medium text-violet-800 hover:bg-violet-100"
                     >
-                      {urlCopied ? '已复制' : '复制链接（微信扫不出时用）'}
+                      {urlCopied ? '已复制' : '复制链接到浏览器打开'}
                     </button>
                     <p className="mt-2 break-all text-center text-[9px] leading-tight text-slate-400">{mobileUrl}</p>
                   </>
@@ -609,6 +624,8 @@ export const InboundPhotoCapture = forwardRef<InboundPhotoCaptureHandle, Props>(
               </>
             )}
           </div>
+          )}
+
         </div>
 
         <div className="flex gap-2">

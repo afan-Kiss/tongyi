@@ -106,7 +106,6 @@ export const SettingsPage: React.FC = () => {
   const [status, setStatus] = useState<SystemStatus | null>(null)
   const printAgentOfflineStreak = useRef(0)
   const [lanQr, setLanQr] = useState('')
-  const [publicQr, setPublicQr] = useState('')
   const [msg, setMsg] = useState('')
   const [copiedUrl, setCopiedUrl] = useState('')
   const [restartingPrint, setRestartingPrint] = useState(false)
@@ -121,8 +120,6 @@ export const SettingsPage: React.FC = () => {
   const lanIp = useMemo(() => pickLanIp(status?.lanIps || []), [status?.lanIps])
   const lanBase = lanIp ? `http://${lanIp}:${port}` : `http://127.0.0.1:${port}`
   const lanUrl = `${lanBase}${PORTAL_PATH}`
-  const publicBase = normalizeBaseUrl(settings?.publicUrl || '')
-  const publicUrl = publicBase ? `${publicBase}${PORTAL_PATH}` : ''
 
   const applyStatus = useCallback((next: SystemStatus) => {
     setStatus((prev) => {
@@ -164,14 +161,6 @@ export const SettingsPage: React.FC = () => {
     if (!lanUrl) return
     QRCode.toDataURL(lanUrl, { width: 180, margin: 1 }).then(setLanQr).catch(() => setLanQr(''))
   }, [lanUrl])
-
-  useEffect(() => {
-    if (!publicUrl) {
-      setPublicQr('')
-      return
-    }
-    QRCode.toDataURL(publicUrl, { width: 180, margin: 1 }).then(setPublicQr).catch(() => setPublicQr(''))
-  }, [publicUrl])
 
   const persistDisplayName = useCallback(async (name: string) => {
     const trimmed = name.trim()
@@ -221,7 +210,6 @@ export const SettingsPage: React.FC = () => {
     if (!settings) return
     try {
       const r = await api.saveSettings({
-        publicUrl: settings.publicUrl,
         excelBridgeEnabled: true,
         printerName: settings.printerName,
         printerModel: settings.printerModel || 'PUQU_AQ00',
@@ -289,51 +277,28 @@ export const SettingsPage: React.FC = () => {
       </section>
 
       <section className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm">
-        <h3 className="text-sm font-semibold text-slate-800">网络访问</h3>
+        <h3 className="text-sm font-semibold text-slate-800">网络访问（内网）</h3>
         <p className="mt-2 text-xs leading-relaxed text-slate-500">
-          <span className="font-medium text-slate-700">内网</span>：手机和电脑连<strong>同一个 WiFi</strong>时用（如 192.168.x.x），速度快。
-          <br />
-          <span className="font-medium text-slate-700">外网</span>：HTTPS 走 8443 端口（443 留给翻墙 x-ui），如 https://churuku.duckdns.org:8443
+          手机和电脑需连<strong>同一个 WiFi</strong>。扫码请用 Safari、Chrome 或手机自带相机，
+          <strong className="text-amber-800">不要用微信扫一扫</strong>（微信无法打开摄像头）。
         </p>
         <p className="mt-2 text-xs text-slate-400">本机调试：http://127.0.0.1:{port}</p>
         {virtualIps.length > 0 && (
           <p className="mt-1 text-[11px] text-slate-400">
-            提示：{virtualIps.join('、')} 多为虚拟网卡（WSL/Hyper-V），手机请扫下方<strong>内网</strong>二维码，不要用这类地址。
+            提示：{virtualIps.join('、')} 多为虚拟网卡（WSL/Hyper-V），请扫下方内网二维码。
           </p>
         )}
 
-        <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+        <div className="mt-4">
           <AccessQrCard
             title="内网访问"
-            hint="同 WiFi 扫码 · 出库入库首页"
+            hint="同 WiFi · 出库入库 / 手机拍照"
             url={lanUrl}
             qrDataUrl={lanQr}
             copied={copiedUrl === lanUrl}
             onCopy={copyUrl}
           />
-          <AccessQrCard
-            title="外网访问"
-            hint="HTTPS 外网 · 手机实时拍照请扫此码"
-            url={publicUrl}
-            qrDataUrl={publicQr}
-            emptyText="请先填写外网地址并保存"
-            copied={copiedUrl === publicUrl}
-            onCopy={copyUrl}
-          />
         </div>
-
-        <label className="mt-4 block text-sm">
-          <span className="text-slate-500">外网地址（HTTPS 域名，手机实时拍照必需）</span>
-          <input
-            className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            value={settings.publicUrl}
-            onChange={(e) => setSettings({ ...settings, publicUrl: e.target.value })}
-            placeholder="https://churuku.duckdns.org:8443"
-          />
-        </label>
-        <p className="mt-2 text-[11px] text-slate-400">
-          保存后右侧外网二维码会自动更新。VPS 上需 nginx + certbot 配置 HTTPS，本机 frpc 已连接。
-        </p>
       </section>
 
       <section className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm">

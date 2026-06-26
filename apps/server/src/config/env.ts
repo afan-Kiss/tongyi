@@ -54,9 +54,40 @@ export function loadEnv(): void {
 
 
 
+/** 解析环境变量布尔值；空值/undefined 使用 defaultValue；无法识别时 warning 后回退 defaultValue */
+export function parseBool(
+  value: string | undefined | null,
+  defaultValue: boolean,
+  label = 'BOOL',
+): boolean {
+  const v = value?.trim()
+  if (!v) return defaultValue
+  const lower = v.toLowerCase()
+  if (lower === '0' || lower === 'false' || lower === 'off' || lower === 'no') return false
+  if (lower === '1' || lower === 'true' || lower === 'on' || lower === 'yes') return true
+  console.warn(`[env] ${label}="${v}" 无法识别，使用默认 ${defaultValue}`)
+  return defaultValue
+}
+
+
+
+/** 解析端口；非法值回退 defaultPort 并打印 warning */
+export function parsePort(value: string | undefined | null, defaultPort: number, label = 'PORT'): number {
+  const v = value?.trim()
+  if (!v) return defaultPort
+  const n = Number(v)
+  if (!Number.isInteger(n) || n < 1 || n > 65535) {
+    console.warn(`[env] ${label}="${v}" 非法，使用默认 ${defaultPort}`)
+    return defaultPort
+  }
+  return n
+}
+
+
+
 export function getPort(): number {
 
-  return Number(process.env.PORT || DEFAULT_PORTS.main)
+  return parsePort(process.env.PORT, DEFAULT_PORTS.main, 'PORT')
 
 }
 
@@ -65,8 +96,9 @@ export function getPort(): number {
 /** 手机拍照 HTTPS 端口；设为 0 可关闭 */
 export function getMobileHttpsPort(): number {
   const v = process.env.MOBILE_HTTPS_PORT?.trim()
-  if (v === '0' || v === 'off' || v === 'false') return 0
-  return Number(v || DEFAULT_PORTS.mobileHttps)
+  if (v === '0') return 0
+  if (v && !parseBool(v, true, 'MOBILE_HTTPS_PORT')) return 0
+  return parsePort(process.env.MOBILE_HTTPS_PORT, DEFAULT_PORTS.mobileHttps, 'MOBILE_HTTPS_PORT')
 }
 
 
@@ -109,7 +141,7 @@ export function getExcelBridgePort(): number {
 
     const u = new URL(getExcelBridgeUrl())
 
-    return u.port ? Number(u.port) : DEFAULT_PORTS.excelBridge
+    return u.port ? parsePort(u.port, DEFAULT_PORTS.excelBridge, 'EXCEL_BRIDGE_URL port') : DEFAULT_PORTS.excelBridge
 
   } catch {
 
@@ -129,9 +161,17 @@ export function getPrintAgentUrl(): string {
 
 
 
+export function getPrintAgentPort(): number {
+
+  return parsePort(process.env.PRINT_AGENT_PORT, DEFAULT_PORTS.printAgent, 'PRINT_AGENT_PORT')
+
+}
+
+
+
 export function isExcelBridgeEnabled(): boolean {
 
-  return process.env.EXCEL_BRIDGE_ENABLED !== 'false'
+  return parseBool(process.env.EXCEL_BRIDGE_ENABLED, true, 'EXCEL_BRIDGE_ENABLED')
 
 }
 
@@ -148,7 +188,7 @@ export function getXiangyuRoot(): string {
 
 export function getXiangyuPort(): number {
 
-  return Number(process.env.XIANGYU_PORT || DEFAULT_PORTS.xiangyuWeb)
+  return parsePort(process.env.XIANGYU_PORT, DEFAULT_PORTS.xiangyuWeb, 'XIANGYU_PORT')
 
 }
 
@@ -156,7 +196,7 @@ export function getXiangyuPort(): number {
 
 export function getXiangyuBridgePort(): number {
 
-  return Number(process.env.XIANGYU_BRIDGE_PORT || DEFAULT_PORTS.xiangyuBridge)
+  return parsePort(process.env.XIANGYU_BRIDGE_PORT, DEFAULT_PORTS.xiangyuBridge, 'XIANGYU_BRIDGE_PORT')
 
 }
 
@@ -214,7 +254,7 @@ export function getXiangyuBridgeConfig(): XiangyuBridgeConfig {
 
 export function getQianfanDevtoolsPort(): number {
   if (process.env.QIANFAN_DEVTOOLS_PORT) {
-    return Number(process.env.QIANFAN_DEVTOOLS_PORT)
+    return parsePort(process.env.QIANFAN_DEVTOOLS_PORT, DEFAULT_PORTS.qianfanDevtools, 'QIANFAN_DEVTOOLS_PORT')
   }
   return getXiangyuBridgeConfig().devtoolsPort
 }
@@ -249,7 +289,7 @@ export function getOutboundConfigPath(): string {
 
 export function isXiangyuEnabled(): boolean {
 
-  return process.env.XIANGYU_ENABLED !== 'false'
+  return parseBool(process.env.XIANGYU_ENABLED, true, 'XIANGYU_ENABLED')
 
 }
 
@@ -268,4 +308,3 @@ export function getDefaultCertPrefix(): string {
 
 
 export const DEFAULT_OUTBOUND_REMARK = '小红书发出'
-

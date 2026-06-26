@@ -5,7 +5,7 @@ import {
   killPortListeners,
   sleepMs,
 } from '../lib/kill-port'
-import { startPrintAgentProcess, stopPrintAgentProcess } from './process-manager.service'
+import { startPrintAgentProcess, stopPrintAgentProcess, isProcessManagerShuttingDown } from './process-manager.service'
 
 let lastPrintAgentOkAt = 0
 
@@ -61,6 +61,9 @@ export async function waitForPrintAgentReady(maxWaitMs = 8000): Promise<boolean>
 
 /** 停止子进程、清理端口占用、重新拉起 print-agent */
 export async function recoverPrintAgent(reason: string): Promise<{ ok: boolean; message: string }> {
+  if (isProcessManagerShuttingDown()) {
+    return { ok: false, message: '系统正在关闭，已跳过打印 Agent 恢复' }
+  }
   const port = getPrintAgentPort()
   console.warn(`[print-agent-recovery] 正在恢复打印 Agent（原因: ${reason}）…`)
   stopPrintAgentProcess()
@@ -69,6 +72,9 @@ export async function recoverPrintAgent(reason: string): Promise<{ ok: boolean; 
     console.warn(`[print-agent-recovery] 已结束占用 ${port} 端口的进程: ${killed.join(', ')}`)
   }
   await sleepMs(600)
+  if (isProcessManagerShuttingDown()) {
+    return { ok: false, message: '系统正在关闭，已跳过打印 Agent 恢复' }
+  }
   startPrintAgentProcess()
   const ready = await waitForPrintAgentReady()
   const message = ready
@@ -161,10 +167,18 @@ export function classifyPrintFailure(raw: string): { code: string; solutions: st
 let watchTimer: ReturnType<typeof setInterval> | null = null
 let recovering = false
 
+export function stopPrintAgentWatch(): void {
+  if (watchTimer) {
+    clearInterval(watchTimer)
+    watchTimer = null
+  }
+}
+
 export function schedulePrintAgentWatch(): void {
   if (watchTimer || process.platform !== 'win32') return
   watchTimer = setInterval(() => {
     void (async () => {
+      if (isProcessManagerShuttingDown()) return
       if (recovering) return
       if (await pingPrintAgent(2500)) return
       // 打印进行中 health 可能超时，但端口仍在监听 — 不要误杀进程

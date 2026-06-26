@@ -498,6 +498,37 @@ button, input, textarea, select { font: inherit; }
   background: linear-gradient(135deg, rgba(255, 36, 66, 0.12), rgba(255, 107, 129, 0.15));
 }
 
+.order-item.sent {
+  border-color: rgba(16, 185, 129, 0.5);
+  background: linear-gradient(135deg, rgba(236, 253, 245, 0.98), rgba(209, 250, 229, 0.55));
+  box-shadow: 0 4px 18px rgba(16, 185, 129, 0.12);
+}
+
+.order-item.sent:hover {
+  border-color: rgba(5, 150, 105, 0.65);
+  box-shadow: 0 8px 24px rgba(16, 185, 129, 0.18);
+}
+
+.order-item.sent .order-title {
+  color: #047857;
+}
+
+.order-item.sent .sent-check {
+  color: #10b981;
+  font-weight: 800;
+}
+
+.order-item.sent .sent-hint {
+  color: #059669;
+  font-weight: 600;
+}
+
+.badge.sent {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.35);
+}
+
 /* ── 按钮 ── */
 .toolbar {
   display: flex;

@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { setSelectedOrder, formatBuyerWithShop, getCachedOrders, setCachedOrders } from '../store.js';
+import { setSelectedOrder, formatBuyerWithShop, getCachedOrders, setCachedOrders, isOrderPackSent } from '../store.js';
 
 function formatTime(ts) {
   const n = Number(ts);
@@ -21,16 +21,19 @@ function renderOrderItem(order, index) {
     ? `<img class="order-thumb" src="${escapeHtml(order.imageUrl)}" alt="" loading="lazy" decoding="async" />`
     : `<div class="order-thumb"></div>`;
   const isToday = order.dayLabel === '今日';
+  const sent = isOrderPackSent(order);
+  const badgeLabel = sent ? '已发送' : (order.dayLabel || order.status);
+  const badgeClass = sent ? 'badge sent' : `badge ${isToday ? 'today' : ''}`;
 
   return `
-    <button class="order-item board-stagger" style="--i:${index}" data-order-id="${escapeHtml(order.orderId)}">
+    <button class="order-item board-stagger${sent ? ' sent' : ''}" style="--i:${index}" data-order-id="${escapeHtml(order.orderId)}">
       ${thumb}
       <div class="order-meta">
-        <div class="order-title">${escapeHtml(order.productTitle)}</div>
+        <div class="order-title">${sent ? '<span class="sent-check" aria-hidden="true">✓ </span>' : ''}${escapeHtml(order.productTitle)}</div>
         <div class="order-sub">${escapeHtml(formatBuyerWithShop(order))}</div>
-        <div class="order-sub">${escapeHtml(order.amount || '')} · ${formatTime(order.createdAt)}</div>
+        <div class="order-sub">${escapeHtml(order.amount || '')} · ${formatTime(order.createdAt)}${sent ? ' · <span class="sent-hint">已发合成图</span>' : ''}</div>
       </div>
-      <span class="badge ${isToday ? 'today' : ''}">${escapeHtml(order.dayLabel || order.status)}</span>
+      <span class="${badgeClass}">${escapeHtml(badgeLabel)}</span>
     </button>
   `;
 }
@@ -168,7 +171,10 @@ export async function renderOrdersPage(root, { navigate, toast }) {
       }
 
       paintOrders(merged, { showYesterday: true });
-      hint.textContent = merged.message;
+      const sentCount = merged.all.filter((o) => isOrderPackSent(o)).length;
+      hint.textContent = sentCount
+        ? `${merged.message} · 已发送 ${sentCount} 单（绿色标记）`
+        : merged.message;
       setCachedOrders(merged);
 
       if (merged.warnings.length) {

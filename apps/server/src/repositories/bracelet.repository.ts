@@ -1,5 +1,9 @@
-import { prisma } from '../lib/prisma'
+import {
+  MANUAL_REVIEW_REQUIRED_MARKER,
+  STALE_RETRY_SKIPPED_MARKER,
+} from '../domain/excel-retry.constants'
 import { normalizeCertNo } from '../domain/inventory.rules'
+import { prisma } from '../lib/prisma'
 
 export const braceletRepo = {
   findByCert(certNo: string) {
@@ -154,13 +158,22 @@ export const operationLogRepo = {
     })
   },
 
-  /** 待补齐 Excel 同步的操作（未撤销、支持重试的类型） */
+  /** 待补齐 Excel 同步的操作（未撤销、支持重试的类型；已标记跳过/需人工核对的不再自动重试） */
   findPendingExcelSync(take = 20) {
     return prisma.operationLog.findMany({
       where: {
         excelSynced: false,
         reverted: false,
         opType: { in: ['outbound', 'inbound', 'new_inbound'] },
+        NOT: {
+          OR: [
+            { excelSyncMsg: { contains: STALE_RETRY_SKIPPED_MARKER } },
+            { excelSyncMsg: { contains: MANUAL_REVIEW_REQUIRED_MARKER } },
+            // 兼容 marker 引入前已写入的中文提示
+            { excelSyncMsg: { contains: '已跳过旧 Excel 重试' } },
+            { excelSyncMsg: { contains: '需人工核对后再同步 Excel' } },
+          ],
+        },
       },
       orderBy: { createdAt: 'asc' },
       take,

@@ -1,7 +1,7 @@
 # Windows 电脑端 frpc 配置示例
-# 映射 4725 到 VPS；外网通过 nginx + HTTPS 域名 churuku.duckdns.org 访问
+# 映射 4725 到 VPS；外网通过 nginx + HTTPS 访问（8443 或 443）
 
-serverAddr = "154.83.91.109"
+serverAddr = "45.196.233.210"
 serverPort = 7000
 
 auth.method = "token"

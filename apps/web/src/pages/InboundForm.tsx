@@ -461,7 +461,9 @@ export const InboundFormPage: React.FC = () => {
           >
             <div>
               <h3 className="mb-1 text-sm font-semibold text-slate-800">实时拍照</h3>
-              <p className="mb-2 text-[11px] text-slate-500">电脑填标签，手机扫一次码即可；换编号不用重扫，画面实时同步</p>
+              <p className="mb-2 text-[11px] text-slate-500">
+                手机与电脑同一 WiFi；右侧扫码连接手机摄像头，换编号无需重扫
+              </p>
               <InboundPhotoCapture
                 ref={photoRef}
                 certNo={form.certNo}

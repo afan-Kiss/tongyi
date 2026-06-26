@@ -33,32 +33,48 @@ function mobileCameraPath(sessionId: string): string {
   return `/inventory/mobile-camera?s=${encodeURIComponent(sessionId)}`
 }
 
+/** 外网 HTTPS 拍照页（经 nginx/frp，手机 4G 可用） */
+export function buildPublicMobileCameraUrl(sessionId: string, publicUrl?: string): string | null {
+  const path = mobileCameraPath(sessionId)
+  const pub = normalizePublicUrl(publicUrl || '')
+  if (!pub.startsWith('https://')) return null
+  try {
+    const host = new URL(pub).hostname
+    if (!host || isLocalHost(host)) return null
+    return `${pub.replace(/\/$/, '')}${path}`
+  } catch {
+    return null
+  }
+}
+
+/** 同 WiFi 内网自签 HTTPS（4730，速度快） */
+export function buildLanMobileCameraUrl(sessionId: string): string | null {
+  const lanIp = pickLanIp(getLanIps())
+  const httpsPort = isMobileHttpsEnabled() ? getMobileHttpsPort() : 0
+  if (lanIp && httpsPort > 0) {
+    return `https://${lanIp}:${httpsPort}${mobileCameraPath(sessionId)}`
+  }
+  return null
+}
+
 /** 服务端生成手机拍照页 URL（权威来源，避免客户端误用 127.0.0.1） */
 export function buildMobileCameraUrl(sessionId: string, publicUrl?: string): string {
   const path = mobileCameraPath(sessionId)
+  const lan = buildLanMobileCameraUrl(sessionId)
+  if (lan) return lan
+
+  const pubMobile = buildPublicMobileCameraUrl(sessionId, publicUrl)
+  if (pubMobile) return pubMobile
+
   const lanIp = pickLanIp(getLanIps())
-  const httpsPort = isMobileHttpsEnabled() ? getMobileHttpsPort() : 0
   const httpPort = getPort()
-
-  if (lanIp && httpsPort > 0) {
-    return `https://${lanIp}:${httpsPort}${path}`
-  }
-
-  const pub = normalizePublicUrl(publicUrl || '')
-  if (pub.startsWith('https://')) {
-    try {
-      const host = new URL(pub).hostname
-      if (host && !isLocalHost(host)) return `${pub}${path}`
-    } catch {
-      /* ignore */
-    }
-  }
 
   if (lanIp) {
     return `http://${lanIp}:${httpPort}${path}`
   }
 
-  if (pub) return `${pub}${path}`
+  const pub = normalizePublicUrl(publicUrl || '')
+  if (pub) return `${pub.replace(/\/$/, '')}${path}`
 
   return `http://127.0.0.1:${httpPort}${path}`
 }

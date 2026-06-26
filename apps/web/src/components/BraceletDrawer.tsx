@@ -98,18 +98,28 @@ export const BraceletDrawer: React.FC<Props> = ({
   const ORDER_LOAD_DELAY_MS = 2000
   const ORDER_LOAD_DELAY_SEC = ORDER_LOAD_DELAY_MS / 1000
   const workbench = useScanWorkbench()
-  const { retryExcel, partialMessage: stockPartialMessage, excelLoading } = workbench
+  const { retryExcel, partialMessage: stockPartialMessage } = workbench
 
   const loadDrawerSnapshots = useCallback(async (certNo: string, refresh = false) => {
     setSnapshotLoading(true)
     try {
       const res = await operationsApi.excelSnapshot(certNo, refresh)
-      setDrawerSnapshots(res.data)
+      setDrawerSnapshots((prev) => {
+        const incomingHasOp = !!(res.data.beforeSnapshotBase64 || res.data.afterSnapshotBase64)
+        const prevHasOp = !!(prev?.beforeSnapshotBase64 || prev?.afterSnapshotBase64)
+        if (!incomingHasOp && prevHasOp) return prev
+        return res.data
+      })
     } catch {
       setDrawerSnapshots(null)
     } finally {
       setSnapshotLoading(false)
     }
+  }, [])
+
+  const onExcelSyncChange = useCallback((sync: ExcelSyncResult | null, partial: boolean) => {
+    setExcelSync(sync)
+    setPartialSuccess(partial)
   }, [])
 
   useEffect(() => {
@@ -212,9 +222,9 @@ export const BraceletDrawer: React.FC<Props> = ({
   }, [open, bracelet?.certNo])
 
   useEffect(() => {
-    if (!hasExcelSnapshots(excelSync) || !current?.certNo) return
-    void loadDrawerSnapshots(current.certNo)
-  }, [excelSync, current?.certNo, loadDrawerSnapshots])
+    if (!open || !excelSync || !hasExcelSnapshots(excelSync)) return
+    setDrawerSnapshots(excelSync)
+  }, [open, excelSync])
 
   useEffect(() => {
     if (!bracelet) {
@@ -348,13 +358,7 @@ export const BraceletDrawer: React.FC<Props> = ({
         orderLoadSecondsLeft={orderHoverSecondsLeft}
         workbench={workbench}
         embedExcelSync={false}
-        onExcelSyncChange={(sync, partial) => {
-          setExcelSync(sync)
-          setPartialSuccess(partial)
-          if (hasExcelSnapshots(sync) && current.certNo) {
-            void loadDrawerSnapshots(current.certNo)
-          }
-        }}
+        onExcelSyncChange={onExcelSyncChange}
         onUpdated={(b) => {
           setCurrent(b)
           onUpdated?.(b)
@@ -553,7 +557,7 @@ export const BraceletDrawer: React.FC<Props> = ({
                   <p className="mt-1 text-xs leading-relaxed text-amber-900/80">
                     {photos.length > 0
                       ? '可继续拍照或从相册选图补充。'
-                      : '该条目已从 Excel 导入系统，尚未有照片。请用下方电脑摄像头或手机扫码拍照留存。'}
+                      : '该条目已从 Excel 导入系统，尚未有照片。请用手机扫码连接后拍照留存。'}
                   </p>
                   {photos.length > 0 && (
                     <div className="mt-3 grid grid-cols-4 gap-1.5 sm:grid-cols-5">
@@ -618,7 +622,7 @@ export const BraceletDrawer: React.FC<Props> = ({
           <div className="mt-4">
             <ExcelSnapshotGallery
               result={drawerSnapshots}
-              loading={snapshotLoading || excelLoading}
+              loading={snapshotLoading}
               onRefresh={() => void loadDrawerSnapshots(current.certNo, true)}
             />
           </div>

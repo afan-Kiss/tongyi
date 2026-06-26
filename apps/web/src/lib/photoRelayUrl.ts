@@ -172,3 +172,17 @@ export function isLanMobileCameraUrl(url: string): boolean {
     })()
   )
 }
+
+/** 打包拍照页内网 HTTPS 入口（手机需 HTTPS 才能调用摄像头） */
+export function buildLanXiangyuUrl(
+  status?: Pick<SystemStatus, 'lanIps' | 'port' | 'mobileHttpsPort'> | null,
+): string | null {
+  const lanIp = pickLanIp(status?.lanIps || [])
+  const httpsPort = status?.mobileHttpsPort || (lanIp ? 4730 : 0)
+  if (lanIp && httpsPort > 0) {
+    return lanHttpsUrl(lanIp, httpsPort, '/xiangyu')
+  }
+  const httpPort = status?.port || 4725
+  if (lanIp) return `http://${lanIp}:${httpPort}/xiangyu`
+  return null
+}

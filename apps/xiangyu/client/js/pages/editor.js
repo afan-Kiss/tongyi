@@ -5,6 +5,7 @@ import {
   setMergedImage,
   clearWorkflow,
   formatBuyerWithShop,
+  markOrderPackSent,
 } from '../store.js';
 import { dataUrlToFile } from './capture.js';
 
@@ -538,6 +539,7 @@ export async function renderEditorPage(root, { navigate, toast }) {
       status.textContent = sendPreface ? '发送成功，说明与图片均已发出' : '发送成功，千帆已确认收到';
       status.className = 'status-bar ok';
       toast(sendPreface ? '说明与图片均已发送' : '发送成功，千帆已确认收到', { type: 'ok' });
+      markOrderPackSent(getSelectedOrder(), 'image');
       clearWorkflow();
       setTimeout(() => navigate('orders'), 1500);
     } catch (err) {

@@ -162,7 +162,10 @@ export const OutboundFormFields: React.FC<Props> = ({
 
         orderNo={orderNo}
 
-        onPickOrder={(no) => onOrderNoChange(no)}
+        onPickOrder={(no, _buyerNick, price) => {
+          onOrderNoChange(no)
+          if (price) onPriceChange(price)
+        }}
 
       />
 

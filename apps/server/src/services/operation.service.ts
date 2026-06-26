@@ -28,10 +28,19 @@ import { braceletRepo, operationLogRepo } from '../repositories/bracelet.reposit
 import { detailRepo } from '../repositories/detail.repository'
 import { prisma } from '../lib/prisma'
 import { parseExcelSyncMsg, serializeExcelSyncMsg } from '../domain/excel-sync-msg'
+import {
+  MANUAL_EXCEL_REVIEW_MSG,
+  MANUAL_REVIEW_REQUIRED_MARKER,
+  STALE_EXCEL_RETRY_MSG,
+  STALE_RETRY_SKIPPED_MARKER,
+  taggedExcelRetryMessage,
+} from '../domain/excel-retry.constants'
+import { validateBraceletMatchesLogResult } from '../domain/excel-retry-validate'
 import { certIndexEntryToRowData, findCertIndexEntry } from './excel-cert-index.service'
 import { ensureDetailRecord } from './detail.service'
 import { healBraceletAttachments } from './bracelet-meta-restore.service'
 import { presentBracelet } from '../utils/media-presenter'
+import { isProcessManagerShuttingDown } from './process-manager.service'
 import type { ExcelSyncResult, InboundDto, NewBraceletDto, OperationResult, OutboundDto } from '../types/api.types'
 
 type Fail = { ok: false; message: string }
@@ -44,6 +53,20 @@ const EXCEL_SYNC_RETRY_DELAY_MS = 800
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function markExcelRetrySkipped(
+  logId: string,
+  kind: 'stale' | 'manual',
+  message?: string,
+): Promise<void> {
+  const marker = kind === 'stale' ? STALE_RETRY_SKIPPED_MARKER : MANUAL_REVIEW_REQUIRED_MARKER
+  const human = message ?? (kind === 'stale' ? STALE_EXCEL_RETRY_MSG : MANUAL_EXCEL_REVIEW_MSG)
+  await operationLogRepo.updateExcelSync(
+    logId,
+    false,
+    serializeExcelSyncMsg({ ok: false, message: taggedExcelRetryMessage(marker, human) }),
+  )
 }
 
 async function syncExcelWithRetry(syncFn: () => Promise<ExcelSyncResult>): Promise<ExcelSyncResult> {
@@ -337,7 +360,16 @@ export async function executeRetryExcel(logId: string): Promise<Ok<OperationResu
   if (log.excelSynced) return { ok: false, message: 'Excel 已同步，无需重试' }
 
   const bracelet = await braceletRepo.findByCert(log.certNo)
-  if (!bracelet) return { ok: false, message: `编号 ${log.certNo} 不存在` }
+  if (!bracelet) {
+    await markExcelRetrySkipped(logId, 'manual', `编号 ${log.certNo} 不存在，需人工核对`)
+    return { ok: false, message: MANUAL_EXCEL_REVIEW_MSG }
+  }
+
+  const stateCheck = validateBraceletMatchesLogResult(bracelet, log.resultJson)
+  if (!stateCheck.ok) {
+    await markExcelRetrySkipped(logId, stateCheck.kind, stateCheck.message)
+    return { ok: false, message: stateCheck.message }
+  }
 
   let excelSync: ExcelSyncResult
 
@@ -354,7 +386,13 @@ export async function executeRetryExcel(logId: string): Promise<Ok<OperationResu
       }),
     )
   } else if (log.opType === 'inbound') {
-    const snapshot = JSON.parse(log.snapshotJson) as { returnDate?: string | null; remark?: string | null }
+    let snapshot: { returnDate?: string | null; remark?: string | null }
+    try {
+      snapshot = JSON.parse(log.snapshotJson) as { returnDate?: string | null; remark?: string | null }
+    } catch {
+      await markExcelRetrySkipped(logId, 'manual')
+      return { ok: false, message: MANUAL_EXCEL_REVIEW_MSG }
+    }
     const recoveryOnly =
       (bracelet.returnDate || null) === (snapshot.returnDate || null) &&
       (bracelet.remark || '') === (snapshot.remark || '')
@@ -510,19 +548,39 @@ export async function getExcelSnapshot(
 }
 
 /** 后台补齐未成功的 Excel 同步（Excel 桥接偶发失败时自动重试） */
+let excelRetryInitialTimer: ReturnType<typeof setTimeout> | null = null
+let excelRetryInterval: ReturnType<typeof setInterval> | null = null
+
+export function stopPendingExcelSyncRetry(): void {
+  if (excelRetryInitialTimer) {
+    clearTimeout(excelRetryInitialTimer)
+    excelRetryInitialTimer = null
+  }
+  if (excelRetryInterval) {
+    clearInterval(excelRetryInterval)
+    excelRetryInterval = null
+  }
+}
+
 export function schedulePendingExcelSyncRetry(): void {
   if (!isExcelBridgeEnabled()) return
 
   let running = false
   const tick = async () => {
+    if (isProcessManagerShuttingDown()) return
     if (running) return
     running = true
     try {
       const pending = await operationLogRepo.findPendingExcelSync(15)
       for (const log of pending) {
+        if (isProcessManagerShuttingDown()) break
         const result = await executeRetryExcel(log.id)
         if (result.ok && result.excelSync?.ok) {
           console.log(`[excel-sync] 自动补齐成功 ${log.certNo} (${log.opType})`)
+        } else if (!result.ok && (
+          result.message === STALE_EXCEL_RETRY_MSG || result.message === MANUAL_EXCEL_REVIEW_MSG
+        )) {
+          console.warn(`[excel-sync] 跳过过期/无效重试 ${log.certNo} (${log.opType}): ${result.message}`)
         }
       }
     } catch (err) {
@@ -532,10 +590,12 @@ export function schedulePendingExcelSyncRetry(): void {
     }
   }
 
-  setTimeout(() => {
+  excelRetryInitialTimer = setTimeout(() => {
     void tick()
   }, 20_000)
-  setInterval(() => {
+  excelRetryInitialTimer.unref?.()
+  excelRetryInterval = setInterval(() => {
     void tick()
-  }, 30_000).unref()
+  }, 30_000)
+  excelRetryInterval.unref()
 }

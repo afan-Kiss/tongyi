@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { buildMobileCameraUrl, getMobileCameraNetworkInfo } from '../../lib/mobile-camera-url'
+import { buildLanMobileCameraUrl, getMobileCameraNetworkInfo } from '../../lib/mobile-camera-url'
 import {
   addPhotoRelayShot,
   createPhotoRelaySession,
@@ -10,7 +10,6 @@ import {
   setPhotoRelayActiveCert,
   updatePhotoRelayFrame,
 } from '../../services/photo-relay.service'
-import { getSettings } from '../../services/settings.service'
 import { sendErr, sendOk } from '../../utils/api-response'
 
 /** 预览帧 base64 上限（内网约 640px JPEG，留足余量） */
@@ -26,18 +25,12 @@ photoRelayRouter.get('/mobile-info', (_req, res) => {
 
 photoRelayRouter.post('/station', async (req, res) => {
   const result = getOrCreateStationSession(String(req.body?.stationId || ''))
-  let publicUrl = ''
-  try {
-    publicUrl = (await getSettings()).publicUrl
-  } catch {
-    /* 设置读取失败时仍返回内网 URL */
-  }
-  const mobileUrl = buildMobileCameraUrl(result.sessionId, publicUrl)
+  const mobileUrlLan = buildLanMobileCameraUrl(result.sessionId)
   sendOk(res, {
     sessionId: result.sessionId,
     certNo: result.certNo,
     created: result.created,
-    mobileUrl,
+    mobileUrl: mobileUrlLan || '',
   })
 })
 

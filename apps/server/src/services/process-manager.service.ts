@@ -19,12 +19,15 @@ import {
   getXiangyuBridgePort,
   getXiangyuPort,
   getXiangyuRoot,
+  getPrintAgentPort,
   isXiangyuEnabled,
 } from '../config/env'
 
 import { ensurePrintAgentPortFree } from '../lib/kill-port'
 
 
+
+let shuttingDown = false
 
 let bridgeProc: ChildProcess | null = null
 
@@ -33,6 +36,14 @@ let printAgentProc: ChildProcess | null = null
 let bridgeRestartTimer: ReturnType<typeof setTimeout> | null = null
 
 let printAgentRestartTimer: ReturnType<typeof setTimeout> | null = null
+
+let bridgeManualStop = false
+
+let printAgentManualStop = false
+
+let bridgeRestartAttempts = 0
+
+let printAgentRestartAttempts = 0
 
 
 
@@ -43,6 +54,102 @@ let xiangyuBridgeProc: ChildProcess | null = null
 let xiangyuWebRestartTimer: ReturnType<typeof setTimeout> | null = null
 
 let xiangyuBridgeRestartTimer: ReturnType<typeof setTimeout> | null = null
+
+let xiangyuWebManualStop = false
+
+let xiangyuBridgeManualStop = false
+
+let xiangyuWebRestartAttempts = 0
+
+let xiangyuBridgeRestartAttempts = 0
+
+
+
+const RESTART_BASE_MS = 5000
+
+const RESTART_MAX_MS = 60_000
+
+/** 子进程稳定运行超过此时间后，重置崩溃退避计数 */
+const STABLE_RUN_MS = 60_000
+
+
+
+let bridgeStableTimer: ReturnType<typeof setTimeout> | null = null
+
+let printAgentStableTimer: ReturnType<typeof setTimeout> | null = null
+
+let xiangyuWebStableTimer: ReturnType<typeof setTimeout> | null = null
+
+let xiangyuBridgeStableTimer: ReturnType<typeof setTimeout> | null = null
+
+
+
+/** 全局 shutdown 标记；stop 函数与 exit 重启逻辑均会读取 */
+export function markProcessManagerShuttingDown(): void {
+  shuttingDown = true
+  bridgeManualStop = true
+  printAgentManualStop = true
+  xiangyuWebManualStop = true
+  xiangyuBridgeManualStop = true
+  bridgeRestartTimer = clearRestartTimer(bridgeRestartTimer)
+  printAgentRestartTimer = clearRestartTimer(printAgentRestartTimer)
+  xiangyuWebRestartTimer = clearRestartTimer(xiangyuWebRestartTimer)
+  xiangyuBridgeRestartTimer = clearRestartTimer(xiangyuBridgeRestartTimer)
+  bridgeStableTimer = clearRestartTimer(bridgeStableTimer)
+  printAgentStableTimer = clearRestartTimer(printAgentStableTimer)
+  xiangyuWebStableTimer = clearRestartTimer(xiangyuWebStableTimer)
+  xiangyuBridgeStableTimer = clearRestartTimer(xiangyuBridgeStableTimer)
+}
+
+export function isProcessManagerShuttingDown(): boolean {
+  return shuttingDown
+}
+
+
+
+function clearRestartTimer(timer: ReturnType<typeof setTimeout> | null): null {
+  if (timer) clearTimeout(timer)
+  return null
+}
+
+function armStableReset(
+  onReset: () => void,
+): ReturnType<typeof setTimeout> {
+  const t = setTimeout(onReset, STABLE_RUN_MS)
+  t.unref?.()
+  return t
+}
+
+
+
+function restartDelayMs(attempts: number): number {
+  const exp = RESTART_BASE_MS * Math.pow(2, Math.min(attempts, 4))
+  return Math.min(exp, RESTART_MAX_MS)
+}
+
+
+
+function scheduleProcessRestart(
+  label: string,
+  attempts: number,
+  timerRef: { current: ReturnType<typeof setTimeout> | null },
+  manualStop: () => boolean,
+  startFn: () => void,
+): void {
+  if (shuttingDown || manualStop()) return
+  if (timerRef.current) {
+    clearTimeout(timerRef.current)
+    timerRef.current = null
+  }
+  const delay = restartDelayMs(attempts)
+  console.warn(`[process-manager] ${label} 将在 ${delay / 1000}s 后重启 (attempt=${attempts + 1})...`)
+  timerRef.current = setTimeout(() => {
+    timerRef.current = null
+    if (shuttingDown || manualStop()) return
+    startFn()
+  }, delay)
+  timerRef.current.unref?.()
+}
 
 
 
@@ -91,12 +198,42 @@ function ensurePrintAgentVenv(): void {
 
 function bridgePython(): string {
 
-  const venvPy = path.join(bridgeDir(), '.venv', 'Scripts', 'python.exe')
-
-  if (fs.existsSync(venvPy)) return venvPy
-
+  const dir = bridgeDir()
+  const candidates = [
+    path.join(dir, '.venv', 'Scripts', 'python.exe'),
+    path.join(dir, 'venv', 'Scripts', 'python.exe'),
+  ]
+  for (const venvPy of candidates) {
+    if (fs.existsSync(venvPy)) return venvPy
+  }
   return 'python'
 
+}
+
+function ensureExcelBridgeVenv(): void {
+  if (process.platform !== 'win32') return
+  const dir = bridgeDir()
+  const req = path.join(dir, 'requirements.txt')
+  if (!fs.existsSync(req)) return
+  const venvCandidates = [
+    path.join(dir, '.venv', 'Scripts', 'python.exe'),
+    path.join(dir, 'venv', 'Scripts', 'python.exe'),
+  ]
+  if (venvCandidates.some((p) => fs.existsSync(p))) return
+  console.log('[process-manager] excel-bridge 虚拟环境不存在，正在创建并安装依赖…')
+  try {
+    execSync('python -m venv .venv', { cwd: dir, stdio: 'inherit' })
+    execSync('.venv\\Scripts\\pip.exe install -r requirements.txt -q', {
+      cwd: dir,
+      stdio: 'inherit',
+      shell: process.platform === 'win32' ? 'cmd.exe' : undefined,
+    })
+  } catch (err) {
+    console.warn(
+      '[process-manager] excel-bridge 依赖安装失败，可手动执行: cd agents/excel-bridge && python -m venv .venv && .venv\\Scripts\\pip install -r requirements.txt',
+      err,
+    )
+  }
 }
 
 
@@ -158,6 +295,8 @@ function syncXiangyuBridgeConfig(root: string): XiangyuBridgeConfig {
 
 export function startExcelBridgeProcess(): void {
 
+  if (shuttingDown) return
+
   if (process.platform !== 'win32') {
 
     console.log('[process-manager] 非 Windows，跳过 Excel 桥接自启动')
@@ -184,7 +323,10 @@ export function startExcelBridgeProcess(): void {
 
   if (bridgeProc) return
 
+  bridgeManualStop = false
+  bridgeRestartTimer = clearRestartTimer(bridgeRestartTimer)
 
+  ensureExcelBridgeVenv()
 
   const port = getExcelBridgePort()
 
@@ -202,21 +344,35 @@ export function startExcelBridgeProcess(): void {
 
   })
 
-
+  bridgeStableTimer = clearRestartTimer(bridgeStableTimer)
+  bridgeStableTimer = armStableReset(() => {
+    bridgeRestartAttempts = 0
+    bridgeStableTimer = null
+  })
 
   bridgeProc.on('exit', (code) => {
 
     bridgeProc = null
+    bridgeStableTimer = clearRestartTimer(bridgeStableTimer)
 
-    console.warn(`[process-manager] Excel 桥接退出 code=${code}，5秒后重启...`)
+    if (shuttingDown || bridgeManualStop) {
+      console.log(`[process-manager] Excel 桥接退出 code=${code}（已停止，不重启）`)
+      return
+    }
 
-    bridgeRestartTimer = setTimeout(() => {
+    console.warn(`[process-manager] Excel 桥接异常退出 code=${code}`)
 
-      bridgeRestartTimer = null
-
-      startExcelBridgeProcess()
-
-    }, 5000)
+    bridgeRestartTimer = clearRestartTimer(bridgeRestartTimer)
+    const timerRef = { current: bridgeRestartTimer }
+    scheduleProcessRestart(
+      'Excel 桥接',
+      bridgeRestartAttempts,
+      timerRef,
+      () => bridgeManualStop || shuttingDown,
+      startExcelBridgeProcess,
+    )
+    bridgeRestartTimer = timerRef.current
+    bridgeRestartAttempts++
 
   })
 
@@ -225,6 +381,8 @@ export function startExcelBridgeProcess(): void {
 
 
 export function startPrintAgentProcess(): void {
+
+  if (shuttingDown) return
 
   if (process.platform !== 'win32') {
 
@@ -252,10 +410,13 @@ export function startPrintAgentProcess(): void {
 
   if (printAgentProc) return
 
+  printAgentManualStop = false
+  printAgentRestartTimer = clearRestartTimer(printAgentRestartTimer)
+
   ensurePrintAgentVenv()
   ensurePrintAgentPortFree()
 
-  const port = Number(process.env.PRINT_AGENT_PORT || 4729)
+  const port = getPrintAgentPort()
 
   const py = printAgentPython()
 
@@ -271,21 +432,35 @@ export function startPrintAgentProcess(): void {
 
   })
 
-
+  printAgentStableTimer = clearRestartTimer(printAgentStableTimer)
+  printAgentStableTimer = armStableReset(() => {
+    printAgentRestartAttempts = 0
+    printAgentStableTimer = null
+  })
 
   printAgentProc.on('exit', (code) => {
 
     printAgentProc = null
+    printAgentStableTimer = clearRestartTimer(printAgentStableTimer)
 
-    console.warn(`[process-manager] 打印 Agent 退出 code=${code}，5秒后重启...`)
+    if (shuttingDown || printAgentManualStop) {
+      console.log(`[process-manager] 打印 Agent 退出 code=${code}（已停止，不重启）`)
+      return
+    }
 
-    printAgentRestartTimer = setTimeout(() => {
+    console.warn(`[process-manager] 打印 Agent 异常退出 code=${code}`)
 
-      printAgentRestartTimer = null
-
-      startPrintAgentProcess()
-
-    }, 5000)
+    printAgentRestartTimer = clearRestartTimer(printAgentRestartTimer)
+    const timerRef = { current: printAgentRestartTimer }
+    scheduleProcessRestart(
+      '打印 Agent',
+      printAgentRestartAttempts,
+      timerRef,
+      () => printAgentManualStop || shuttingDown,
+      startPrintAgentProcess,
+    )
+    printAgentRestartTimer = timerRef.current
+    printAgentRestartAttempts++
 
   })
 
@@ -294,6 +469,8 @@ export function startPrintAgentProcess(): void {
 
 
 function startXiangyuWeb(root: string): void {
+
+  if (shuttingDown) return
 
   const script = path.join(root, 'server/index.js')
 
@@ -307,7 +484,8 @@ function startXiangyuWeb(root: string): void {
 
   if (xiangyuWebProc) return
 
-
+  xiangyuWebManualStop = false
+  xiangyuWebRestartTimer = clearRestartTimer(xiangyuWebRestartTimer)
 
   const port = getXiangyuPort()
 
@@ -327,21 +505,35 @@ function startXiangyuWeb(root: string): void {
 
   })
 
-
+  xiangyuWebStableTimer = clearRestartTimer(xiangyuWebStableTimer)
+  xiangyuWebStableTimer = armStableReset(() => {
+    xiangyuWebRestartAttempts = 0
+    xiangyuWebStableTimer = null
+  })
 
   xiangyuWebProc.on('exit', (code) => {
 
     xiangyuWebProc = null
+    xiangyuWebStableTimer = clearRestartTimer(xiangyuWebStableTimer)
 
-    console.warn(`[process-manager] 祥钰 Web 退出 code=${code}，5秒后重启...`)
+    if (shuttingDown || xiangyuWebManualStop) {
+      console.log(`[process-manager] 祥钰 Web 退出 code=${code}（已停止，不重启）`)
+      return
+    }
 
-    xiangyuWebRestartTimer = setTimeout(() => {
+    console.warn(`[process-manager] 祥钰 Web 异常退出 code=${code}`)
 
-      xiangyuWebRestartTimer = null
-
-      startXiangyuWeb(root)
-
-    }, 5000)
+    xiangyuWebRestartTimer = clearRestartTimer(xiangyuWebRestartTimer)
+    const timerRef = { current: xiangyuWebRestartTimer }
+    scheduleProcessRestart(
+      '祥钰 Web',
+      xiangyuWebRestartAttempts,
+      timerRef,
+      () => xiangyuWebManualStop || shuttingDown,
+      () => startXiangyuWeb(root),
+    )
+    xiangyuWebRestartTimer = timerRef.current
+    xiangyuWebRestartAttempts++
 
   })
 
@@ -350,6 +542,8 @@ function startXiangyuWeb(root: string): void {
 
 
 function startXiangyuBridge(root: string, bridgeCfg: XiangyuBridgeConfig): void {
+
+  if (shuttingDown) return
 
   const script = path.join(root, 'scripts/bridge-relay.js')
 
@@ -363,7 +557,8 @@ function startXiangyuBridge(root: string, bridgeCfg: XiangyuBridgeConfig): void 
 
   if (xiangyuBridgeProc) return
 
-
+  xiangyuBridgeManualStop = false
+  xiangyuBridgeRestartTimer = clearRestartTimer(xiangyuBridgeRestartTimer)
 
   const bridgePort = getXiangyuBridgePort()
   const devtoolsPort = bridgeCfg.devtoolsPort
@@ -379,21 +574,35 @@ function startXiangyuBridge(root: string, bridgeCfg: XiangyuBridgeConfig): void 
     },
   })
 
-
+  xiangyuBridgeStableTimer = clearRestartTimer(xiangyuBridgeStableTimer)
+  xiangyuBridgeStableTimer = armStableReset(() => {
+    xiangyuBridgeRestartAttempts = 0
+    xiangyuBridgeStableTimer = null
+  })
 
   xiangyuBridgeProc.on('exit', (code) => {
 
     xiangyuBridgeProc = null
+    xiangyuBridgeStableTimer = clearRestartTimer(xiangyuBridgeStableTimer)
 
-    console.warn(`[process-manager] 祥钰 Bridge 退出 code=${code}，5秒后重启...`)
+    if (shuttingDown || xiangyuBridgeManualStop) {
+      console.log(`[process-manager] 祥钰 Bridge 退出 code=${code}（已停止，不重启）`)
+      return
+    }
 
-    xiangyuBridgeRestartTimer = setTimeout(() => {
+    console.warn(`[process-manager] 祥钰 Bridge 异常退出 code=${code}`)
 
-      xiangyuBridgeRestartTimer = null
-
-      startXiangyuBridge(root, bridgeCfg)
-
-    }, 5000)
+    xiangyuBridgeRestartTimer = clearRestartTimer(xiangyuBridgeRestartTimer)
+    const timerRef = { current: xiangyuBridgeRestartTimer }
+    scheduleProcessRestart(
+      '祥钰 Bridge',
+      xiangyuBridgeRestartAttempts,
+      timerRef,
+      () => xiangyuBridgeManualStop || shuttingDown,
+      () => startXiangyuBridge(root, bridgeCfg),
+    )
+    xiangyuBridgeRestartTimer = timerRef.current
+    xiangyuBridgeRestartAttempts++
 
   })
 
@@ -402,6 +611,8 @@ function startXiangyuBridge(root: string, bridgeCfg: XiangyuBridgeConfig): void 
 
 
 export function startXiangyuProcesses(): void {
+
+  if (shuttingDown) return
 
   if (!isXiangyuEnabled()) {
 
@@ -441,7 +652,10 @@ export function startXiangyuProcesses(): void {
 
 export function stopExcelBridgeProcess(): void {
 
-  if (bridgeRestartTimer) clearTimeout(bridgeRestartTimer)
+  bridgeManualStop = true
+  bridgeRestartAttempts = 0
+  bridgeRestartTimer = clearRestartTimer(bridgeRestartTimer)
+  bridgeStableTimer = clearRestartTimer(bridgeStableTimer)
 
   if (bridgeProc) {
 
@@ -457,7 +671,10 @@ export function stopExcelBridgeProcess(): void {
 
 export function stopPrintAgentProcess(): void {
 
-  if (printAgentRestartTimer) clearTimeout(printAgentRestartTimer)
+  printAgentManualStop = true
+  printAgentRestartAttempts = 0
+  printAgentRestartTimer = clearRestartTimer(printAgentRestartTimer)
+  printAgentStableTimer = clearRestartTimer(printAgentStableTimer)
 
   if (printAgentProc) {
 
@@ -473,9 +690,14 @@ export function stopPrintAgentProcess(): void {
 
 export function stopXiangyuProcesses(): void {
 
-  if (xiangyuWebRestartTimer) clearTimeout(xiangyuWebRestartTimer)
-
-  if (xiangyuBridgeRestartTimer) clearTimeout(xiangyuBridgeRestartTimer)
+  xiangyuWebManualStop = true
+  xiangyuBridgeManualStop = true
+  xiangyuWebRestartAttempts = 0
+  xiangyuBridgeRestartAttempts = 0
+  xiangyuWebRestartTimer = clearRestartTimer(xiangyuWebRestartTimer)
+  xiangyuBridgeRestartTimer = clearRestartTimer(xiangyuBridgeRestartTimer)
+  xiangyuWebStableTimer = clearRestartTimer(xiangyuWebStableTimer)
+  xiangyuBridgeStableTimer = clearRestartTimer(xiangyuBridgeStableTimer)
 
   if (xiangyuWebProc) {
 
@@ -494,5 +716,4 @@ export function stopXiangyuProcesses(): void {
   }
 
 }
-
 

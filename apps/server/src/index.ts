@@ -6,7 +6,7 @@ import { checkStartupLicense, scheduleLicenseRefresh } from './services/youdaoLi
 import { startMobileHttpsServer } from './lib/mobile-https'
 import { ensureDefaultLabelTemplate } from './services/settings.service'
 import { scheduleCertIndexWarmup } from './services/excel-cert-index.service'
-import { schedulePendingExcelSyncRetry } from './services/operation.service'
+import { schedulePendingExcelSyncRetry, stopPendingExcelSyncRetry } from './services/operation.service'
 import {
   startExcelBridgeProcess,
   stopExcelBridgeProcess,
@@ -14,8 +14,9 @@ import {
   stopPrintAgentProcess,
   startXiangyuProcesses,
   stopXiangyuProcesses,
+  markProcessManagerShuttingDown,
 } from './services/process-manager.service'
-import { schedulePrintAgentWatch } from './services/print-agent-recovery.service'
+import { schedulePrintAgentWatch, stopPrintAgentWatch } from './services/print-agent-recovery.service'
 import { appendBackendLog, registerProcessCrashHandlers } from './lib/crash-log'
 
 loadEnv()
@@ -24,6 +25,8 @@ registerProcessCrashHandlers()
 appendBackendLog('startup', 'backend 启动')
 
 const port = getPort()
+
+let shuttingDown = false
 
 async function main() {
   await prisma.$connect()
@@ -66,12 +69,63 @@ async function main() {
   const httpsServer = startMobileHttpsServer(app)
 
   const shutdown = () => {
-    stopExcelBridgeProcess()
-    stopPrintAgentProcess()
-    stopXiangyuProcesses()
-    httpsServer?.close()
-    server.close(() => process.exit(0))
+    if (shuttingDown) return
+    shuttingDown = true
+    markProcessManagerShuttingDown()
+
+    const forceTimer = setTimeout(() => {
+      console.warn('[backend] shutdown 超时，强制退出')
+      process.exit(1)
+    }, 9000)
+    forceTimer.unref()
+
+    const finish = async () => {
+      try {
+        await prisma.$disconnect()
+      } catch (err) {
+        console.warn('[backend] prisma disconnect 失败:', err instanceof Error ? err.message : err)
+      }
+      clearTimeout(forceTimer)
+      process.exit(0)
+    }
+
+    try { stopExcelBridgeProcess() } catch (err) {
+      console.warn('[backend] stop Excel Bridge 失败:', err instanceof Error ? err.message : err)
+    }
+    try { stopPrintAgentProcess() } catch (err) {
+      console.warn('[backend] stop Print Agent 失败:', err instanceof Error ? err.message : err)
+    }
+    try { stopXiangyuProcesses() } catch (err) {
+      console.warn('[backend] stop 祥钰进程失败:', err instanceof Error ? err.message : err)
+    }
+    try { stopPrintAgentWatch() } catch (err) {
+      console.warn('[backend] stop Print Agent watch 失败:', err instanceof Error ? err.message : err)
+    }
+    try { stopPendingExcelSyncRetry() } catch (err) {
+      console.warn('[backend] stop Excel retry 失败:', err instanceof Error ? err.message : err)
+    }
+
+    const closeHttp = () => {
+      try {
+        server.close(() => { void finish() })
+      } catch (err) {
+        console.warn('[backend] HTTP server close 失败:', err instanceof Error ? err.message : err)
+        void finish()
+      }
+    }
+
+    if (httpsServer) {
+      try {
+        httpsServer.close(() => closeHttp())
+      } catch (err) {
+        console.warn('[backend] HTTPS server close 失败:', err instanceof Error ? err.message : err)
+        closeHttp()
+      }
+    } else {
+      closeHttp()
+    }
   }
+
   process.on('SIGINT', shutdown)
   process.on('SIGTERM', shutdown)
 }

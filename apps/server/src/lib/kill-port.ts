@@ -39,8 +39,10 @@ export function sleepMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+import { getPrintAgentPort as envPrintAgentPort } from '../config/env'
+
 export function getPrintAgentPort(): number {
-  return Number(process.env.PRINT_AGENT_PORT || 4729)
+  return envPrintAgentPort()
 }
 
 /** 启动前：若 print-agent 端口被僵尸进程占用则清理 */

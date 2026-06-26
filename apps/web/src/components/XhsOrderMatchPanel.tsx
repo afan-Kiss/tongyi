@@ -19,7 +19,7 @@ type Props = {
   active: boolean
   hoverWaiting?: boolean
   hoverSecondsLeft?: number
-  onPickOrder: (orderNo: string, buyerNick: string) => void
+  onPickOrder: (orderNo: string, buyerNick: string, price: string) => void
 }
 
 function shopSummary(orders: XhsOrderRow[]): string {
@@ -165,7 +165,7 @@ export const XhsOrderMatchPanel: React.FC<Props> = ({
             <button
               key={`${o.shopTitle}::${o.orderNo}`}
               type="button"
-              onClick={() => onPickOrder(o.orderNo, o.buyerNick)}
+              onClick={() => onPickOrder(o.orderNo, o.buyerNick, fmtYuan(product))}
               className={`w-full rounded-xl border px-3 py-2 text-left text-[11px] leading-relaxed transition ${
                 isSelected
                   ? 'border-emerald-500 bg-emerald-50 ring-1 ring-emerald-300'

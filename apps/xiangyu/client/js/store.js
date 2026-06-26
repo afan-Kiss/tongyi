@@ -167,3 +167,63 @@ export function clearCachedOrders() {
     // ignore
   }
 }
+
+const SENT_ORDERS_KEY = 'xiangyu.sentOrders';
+const SENT_ORDERS_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
+
+function orderSentKey(order) {
+  if (!order) return '';
+  return String(order.orderId || order.orderNo || order.packageId || '').trim();
+}
+
+function loadSentOrdersMap() {
+  try {
+    const raw = localStorage.getItem(SENT_ORDERS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveSentOrdersMap(map) {
+  try {
+    localStorage.setItem(SENT_ORDERS_KEY, JSON.stringify(map));
+  } catch {
+    // ignore quota
+  }
+}
+
+function pruneSentOrders(map) {
+  const cutoff = Date.now() - SENT_ORDERS_MAX_AGE_MS;
+  const next = {};
+  for (const [key, meta] of Object.entries(map)) {
+    if (meta && Number(meta.sentAt || 0) >= cutoff) next[key] = meta;
+  }
+  return next;
+}
+
+/** 打包拍照（合成图/文字）已成功发送 */
+export function markOrderPackSent(order, kind = 'image') {
+  const key = orderSentKey(order);
+  if (!key) return;
+  const map = pruneSentOrders(loadSentOrdersMap());
+  map[key] = {
+    sentAt: Date.now(),
+    kind,
+    orderNo: String(order.orderNo || order.orderId || ''),
+    buyerNick: String(order.buyerNick || ''),
+  };
+  saveSentOrdersMap(map);
+}
+
+export function isOrderPackSent(order) {
+  const key = orderSentKey(order);
+  if (!key) return false;
+  const map = loadSentOrdersMap();
+  const meta = map[key];
+  if (!meta) return false;
+  if (Date.now() - Number(meta.sentAt || 0) > SENT_ORDERS_MAX_AGE_MS) return false;
+  return true;
+}
