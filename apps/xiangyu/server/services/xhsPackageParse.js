@@ -1,3 +1,11 @@
+const {
+  extractReceiverAddress,
+  extractSenderAddress,
+  extractReceiverPhone,
+  extractShipExpressNo,
+  extractReturnExpressNo,
+} = require('./orderSearchMatch');
+
 const TZ_OFFSET_MS = 8 * 3600000;
 
 function parseTs(val) {
@@ -252,6 +260,11 @@ function normalizePackage(pkg, shopTitle = '') {
   const productPriceNum = totalProductPrice(pkg);
   const shippingFeeNum = toAmount(pkg.shippingFee, 'shippingFee');
   const redDiscountNum = extractRedDiscount(pkg);
+  const receiverAddress = extractReceiverAddress(pkg);
+  const senderAddress = extractSenderAddress(pkg);
+  const receiverPhone = extractReceiverPhone(pkg);
+  const shipExpressNo = extractShipExpressNo(pkg);
+  const returnExpressNo = extractReturnExpressNo(pkg);
 
   return {
     orderId: internalId || orderNo,
@@ -259,6 +272,13 @@ function normalizePackage(pkg, shopTitle = '') {
     packageId,
     buyerNick: nickName || '买家',
     buyerName: str(pkg.userInfo?.name) || nickName,
+    receiverName: str(pkg.receiverName || pkg.receiverInfo?.name || pkg.consigneeName),
+    senderName: str(pkg.senderName || pkg.senderInfo?.name || pkg.shipperName),
+    receiverAddress,
+    senderAddress,
+    receiverPhone,
+    shipExpressNo,
+    returnExpressNo,
     buyerUserId,
     sellerId,
     productTitle: firstProductTitle(pkg),

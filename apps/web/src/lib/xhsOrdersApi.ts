@@ -21,6 +21,11 @@ export interface XhsOrderRow {
   returnExpressNo?: string
   /** 售后搜索：发货物流单号 */
   shipExpressNo?: string
+  /** 收货地址（模糊搜索） */
+  receiverAddress?: string
+  /** 寄件/发件地址 */
+  senderAddress?: string
+  receiverPhone?: string
   packageId?: string
   returnsId?: string
   productTitle?: string
@@ -81,6 +86,9 @@ function normalizeRow(raw: Record<string, unknown>): XhsOrderRow {
     dayLabel: raw.dayLabel ? String(raw.dayLabel) : undefined,
     returnExpressNo: raw.returnExpressNo ? String(raw.returnExpressNo) : undefined,
     shipExpressNo: raw.shipExpressNo ? String(raw.shipExpressNo) : undefined,
+    receiverAddress: raw.receiverAddress ? String(raw.receiverAddress) : undefined,
+    senderAddress: raw.senderAddress ? String(raw.senderAddress) : undefined,
+    receiverPhone: raw.receiverPhone ? String(raw.receiverPhone) : undefined,
     packageId: packageId || undefined,
     returnsId: raw.returnsId ? String(raw.returnsId) : undefined,
     productTitle: raw.productTitle ? String(raw.productTitle) : undefined,

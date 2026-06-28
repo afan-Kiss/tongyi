@@ -12,6 +12,14 @@ const {
   normalizePackagesBatch,
 } = require('./xhsPackageParse');
 const { isLogisticsQuery, searchAfterSalesByKeywords } = require('./afterSalesReturnService');
+const {
+  buildSearchCandidates,
+  filterOrdersByQuery,
+  needsBroadLocalScan,
+  looksLikeAddressQuery,
+  looksLikeLogisticsQuery,
+  looksLikePartialOrderQuery,
+} = require('./orderSearchMatch');
 
 const ORDER_API_URL = 'https://ark.xiaohongshu.com/api/edith/fulfillment/order/page';
 const ORDER_REFERER = 'https://ark.xiaohongshu.com/app-order/order/query';
@@ -297,18 +305,29 @@ function isReturnRelatedOrder(order) {
 
 async function searchOrdersForAccount(account, startMs, endMs, query, maxPages = 2) {
   const allPackages = [];
-  for (let page = 1; page <= maxPages; page += 1) {
-    const { packages, hasMore } = await requestOrderPage(
-      account,
-      startMs,
-      endMs,
-      page,
-      ORDER_PAGE_SIZE,
-      query,
-    );
-    allPackages.push(...packages);
-    if (!hasMore || !packages.length) break;
+  const seenKeys = new Set();
+  const keywords = query ? buildSearchCandidates(query) : [''];
+
+  for (const keyword of keywords) {
+    for (let page = 1; page <= maxPages; page += 1) {
+      const { packages, hasMore } = await requestOrderPage(
+        account,
+        startMs,
+        endMs,
+        page,
+        ORDER_PAGE_SIZE,
+        keyword,
+      );
+      for (const pkg of packages) {
+        const key = String(pkg?.packageId || pkg?.package_id || pkg?.orderId || pkg?.order_id || '');
+        if (key && seenKeys.has(key)) continue;
+        if (key) seenKeys.add(key);
+        allPackages.push(pkg);
+      }
+      if (!hasMore || !packages.length) break;
+    }
   }
+
   const sellerIdFromCookie = extractSellerIdFromCookie(account.cookie);
   return normalizePackagesBatch(allPackages, account.name).map((order) => ({
     ...order,
@@ -316,9 +335,14 @@ async function searchOrdersForAccount(account, startMs, endMs, query, maxPages =
   }));
 }
 
+async function searchOrdersBroadForAccount(account, startMs, endMs, query, maxPages = 5) {
+  const orders = await searchOrdersForAccount(account, startMs, endMs, '', maxPages);
+  return filterOrdersByQuery(orders, query);
+}
+
 async function searchOrders(query, options = {}) {
   const q = String(query || '').trim();
-  if (!q) throw new Error('请输入查询内容（物流单号、订单号、买家昵称或手机号）');
+  if (!q) throw new Error('请输入查询内容（任意片段：订单号、物流、地址、昵称等）');
 
   const config = loadConfig();
   const accounts = listEnabledAccounts(config);
@@ -355,7 +379,13 @@ async function searchOrders(query, options = {}) {
     perShop.set(shopName, 0);
   }
 
-  if (isLogisticsQuery(q) || /^P\d/i.test(q) || /^R\d/i.test(q) || q.length >= 6) {
+  const shouldTryAfterSales =
+    isLogisticsQuery(q) ||
+    looksLikeLogisticsQuery(q) ||
+    looksLikePartialOrderQuery(q) ||
+    looksLikeAddressQuery(q) ||
+    q.length >= 4;
+  if (shouldTryAfterSales) {
     try {
       const fallback = await searchAfterSalesByKeywords(q, { ...options, maxPages: Math.max(maxPages, 2) });
       for (const order of fallback.items || []) {
@@ -369,7 +399,31 @@ async function searchOrders(query, options = {}) {
     }
   }
 
-  let items = [...merged.values()];
+  let items = filterOrdersByQuery([...merged.values()], q);
+
+  const broadPages = looksLikeAddressQuery(q) ? 12 : 8;
+  const broadSettled = await Promise.allSettled(
+    accounts.map(async (account) => searchOrdersBroadForAccount(account, startMs, endMs, q, broadPages)),
+  );
+  for (let i = 0; i < broadSettled.length; i += 1) {
+    const result = broadSettled[i];
+    const account = accounts[i];
+    const shopName = account?.name || '未命名店铺';
+    if (result.status !== 'fulfilled') continue;
+    for (const order of result.value) {
+      const key = `${order.shopTitle}::${order.orderNo}::${order.returnsId || ''}`;
+      if (!merged.has(key)) {
+        merged.set(key, { ...order, searchSource: 'local_scan' });
+        perShop.set(shopName, (perShop.get(shopName) || 0) + 1);
+      }
+    }
+  }
+  items = filterOrdersByQuery([...merged.values()], q);
+
+  if (needsBroadLocalScan(q, items) && items.length === 0) {
+    /* 已在上方全量扫描，此处仅保留兼容 */
+  }
+
   items.sort((a, b) => {
     const ar = isReturnRelatedOrder(a) ? 1 : 0;
     const br = isReturnRelatedOrder(b) ? 1 : 0;
@@ -379,11 +433,11 @@ async function searchOrders(query, options = {}) {
 
   const shopSummary = accounts.map((a) => ({
     name: a.name || '未命名店铺',
-    count: perShop.get(a.name || '未命名店铺') || 0,
+    count: items.filter((o) => (o.shopTitle || o.sourceAccountName) === (a.name || '未命名店铺')).length,
   }));
 
   let message = items.length
-    ? `四店共 ${items.length} 条匹配（订单号/物流/买家综合搜索）`
+    ? `四店共 ${items.length} 条匹配（订单/物流/地址/昵称任意片段）`
     : '未找到匹配订单，可换关键词或扩大时间范围';
   if (errors.length && items.length) {
     message = `${message}（${errors.length} 个店铺查询失败）`;

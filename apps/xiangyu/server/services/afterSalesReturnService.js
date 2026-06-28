@@ -9,6 +9,7 @@ const {
   XhsSignError,
 } = require('./xhsSigner');
 const { buildArkOrderDetailUrl, normalizePackageId, buildDetailServiceUrl, buildAftersaleDetailServiceUrl } = require('./arkSsoTicketService');
+const { extractReceiverAddress, extractSenderAddress, extractShipExpressNo, extractReturnExpressNo } = require('./orderSearchMatch');
 
 const AFTER_SALES_RETURNS_URL = 'https://ark.xiaohongshu.com/api/edith/after-sales/returns/v3';
 const AFTER_SALE_REFERER = 'https://ark.xiaohongshu.com/app-order/aftersale/list';
@@ -110,8 +111,11 @@ function normalizeAfterSaleRow(item, shopTitle, cookie) {
     statusDesc: str(item.status_name),
     afterSaleStatus: str(item.return_type_name),
     afterSaleStatusDesc: [item.return_type_name, item.sub_status_name].filter(Boolean).join(' · '),
-    returnExpressNo: str(item.return_express_no),
-    shipExpressNo: str(item.ship_express_no),
+    returnExpressNo: str(item.return_express_no) || extractReturnExpressNo(item),
+    shipExpressNo: str(item.ship_express_no) || extractShipExpressNo(item),
+    receiverAddress: extractReceiverAddress(item),
+    senderAddress: extractSenderAddress(item),
+    receiverPhone: str(item.phone || item.receiver_phone || item.mobile),
     productTitle,
     arkDetailUrl: str(item.returns_id)
       ? buildAftersaleDetailServiceUrl(item.returns_id)
@@ -180,7 +184,7 @@ async function searchAfterSalesForAccount(account, keywords, maxPages = 2) {
 
 async function searchAfterSalesByKeywords(query, options = {}) {
   const q = String(query || '').trim();
-  if (!q) throw new Error('请输入物流单号、订单号或买家信息');
+  if (!q) throw new Error('请输入物流单号、订单号片段、收货地址或买家信息');
 
   const config = loadConfig();
   const accounts = listEnabledAccounts(config);
