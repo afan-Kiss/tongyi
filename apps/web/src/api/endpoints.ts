@@ -47,6 +47,11 @@ export const authApi = {
 
 export const inventoryApi = {
   stats: () => request<{ data: DashboardStats }>('/inventory/stats'),
+  prefixStats: (params: Record<string, string | number>) => {
+    const q = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => q.set(k, String(v)))
+    return request<{ data: { prefix: string; count: number }[] }>(`/inventory/prefix-stats?${q}`)
+  },
   list: (params: Record<string, string | number>) => {
     const q = new URLSearchParams()
     Object.entries(params).forEach(([k, v]) => q.set(k, String(v)))

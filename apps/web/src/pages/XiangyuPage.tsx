@@ -1,15 +1,23 @@
 import React, { useCallback, useEffect, useState } from 'react'
-
 import { RefreshCw } from 'lucide-react'
 
 import { XiangyuAccessQrDialog, XiangyuAccessQrFab } from '@/components/XiangyuAccessQrDialog'
-import { settingsApi } from '@/api/endpoints'
-import { useAuth } from '@/context/AuthContext'
 
 const PROXY_PATH = '/xiangyu-proxy/'
 
+async function fetchXiangyuOnline(): Promise<{ online: boolean; message: string }> {
+  try {
+    const res = await fetch(`${PROXY_PATH}api/health`, { credentials: 'omit' })
+    if (!res.ok) return { online: false, message: '祥钰系统未响应' }
+    const data = (await res.json()) as { ok?: boolean; service?: string }
+    if (data.ok) return { online: true, message: '' }
+    return { online: false, message: '祥钰系统未就绪' }
+  } catch {
+    return { online: false, message: '无法连接祥钰系统，请确认服务已启动' }
+  }
+}
+
 export const XiangyuPage: React.FC = () => {
-  const { loading: authLoading, authed } = useAuth()
   const [online, setOnline] = useState<boolean | null>(null)
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(true)
@@ -17,52 +25,35 @@ export const XiangyuPage: React.FC = () => {
   const [qrOpen, setQrOpen] = useState(true)
 
   const loadStatus = useCallback(async () => {
-    if (!authed) return
     setLoading(true)
     try {
-      const r = await settingsApi.status()
-      setOnline(r.data.xiangyu?.online ?? false)
-      setMessage(r.data.xiangyu?.message ?? '')
+      const r = await fetchXiangyuOnline()
+      setOnline(r.online)
+      setMessage(r.message)
     } catch (e) {
       setOnline(false)
       setMessage(e instanceof Error ? e.message : '无法获取祥钰系统状态')
     } finally {
       setLoading(false)
     }
-  }, [authed])
+  }, [])
 
   useEffect(() => {
-    if (authLoading) return
-    if (!authed) {
-      setLoading(false)
-      setOnline(false)
-      setMessage('请先在「出库入库」页登录本系统后再使用打包拍照')
-      return
-    }
     void loadStatus()
-  }, [authLoading, authed, loadStatus])
+  }, [loadStatus])
 
   useEffect(() => {
-    if (authLoading || !authed || online !== true) return
+    if (online !== true) return
     setIframeKey((k) => k + 1)
-  }, [authLoading, authed, online])
+  }, [online])
 
   useEffect(() => {
-    if (authLoading || !authed || online !== true) return
+    if (online !== true) return
     setQrOpen(true)
-  }, [authLoading, authed, online])
+  }, [online])
 
-  if (authLoading || loading) {
+  if (loading) {
     return <p className="p-6 text-center text-sm text-slate-500">正在连接祥钰系统…</p>
-  }
-
-  if (!authed) {
-    return (
-      <div className="mx-auto flex max-w-md flex-col items-center gap-3 p-8 text-center">
-        <p className="text-sm text-slate-700">请使用右上角已登录的账号，无需单独注册祥钰账号。</p>
-        <p className="text-xs text-slate-500">{message || '若刚登录，请稍候再切换到此页。'}</p>
-      </div>
-    )
   }
 
   if (online === false) {
@@ -89,7 +80,7 @@ export const XiangyuPage: React.FC = () => {
       <XiangyuAccessQrDialog open={qrOpen} onClose={() => setQrOpen(false)} />
       {!qrOpen && <XiangyuAccessQrFab onClick={() => setQrOpen(true)} />}
 
-      <div className="flex h-[calc(100dvh-5.25rem)] min-h-0 flex-col">
+      <div className="flex h-[calc(100dvh-3.75rem)] min-h-0 flex-col sm:h-[calc(100dvh-4.25rem)]">
         <iframe
           key={iframeKey}
           src={PROXY_PATH}

@@ -20,6 +20,8 @@ import {
 
   saveOutboundSalesSelection,
 
+  rememberSalesPerson,
+
   type SalesChannel,
 
 } from '@/lib/outboundFormMemory'
@@ -124,7 +126,7 @@ export const StockOpPanel: React.FC<Props> = ({
 
   const [salesChannel, setSalesChannel] = useState<SalesChannel>(outboundMem.salesChannel)
 
-  const [salesPersonOptions] = useState(outboundMem.salesPersons)
+  const [salesPersonOptions, setSalesPersonOptions] = useState(outboundMem.salesPersons)
 
   const [status, setStatus] = useState('')
   const [statusKind, setStatusKind] = useState<'info' | 'error' | 'success'>('info')
@@ -178,6 +180,16 @@ export const StockOpPanel: React.FC<Props> = ({
   const showStatus = (message: string, kind: 'info' | 'error' | 'success' = 'info') => {
     setStatus(message)
     setStatusKind(kind)
+  }
+
+  const handleSalesPersonCommit = (person: string) => {
+    rememberSalesPerson(person)
+    setSalesPersonOptions(loadOutboundFormMemory().salesPersons)
+  }
+
+  const handleSalesChannelChange = (channel: SalesChannel) => {
+    setSalesChannel(channel)
+    saveOutboundFormMemory({ salesChannel: channel })
   }
 
   const confirmInbound = async () => {
@@ -312,7 +324,7 @@ export const StockOpPanel: React.FC<Props> = ({
           <p className="mt-0.5 text-xs text-slate-500">
             {isOut
               ? '同步 Excel，恢复在库（数量改为 1）'
-              : '当前已在库；若 Excel 仍为已出库，请先点下方出库再入库，或检查 Excel 与系统是否一致'}
+              : '当前已在库；可点入库同步 Excel 退货状态（数量=1、清除售出信息）'}
           </p>
           {showRemark && (
             <input
@@ -352,7 +364,8 @@ export const StockOpPanel: React.FC<Props> = ({
               onOrderNoChange={setOrderNo}
               onRemarkChange={setRemarkText}
               onSalesPersonChange={setSalesPerson}
-              onSalesChannelChange={setSalesChannel}
+              onSalesPersonCommit={handleSalesPersonCommit}
+              onSalesChannelChange={handleSalesChannelChange}
             />
           </div>
           <button
@@ -434,8 +447,8 @@ export const StockOpPanel: React.FC<Props> = ({
             onRemarkChange={setRemarkText}
 
             onSalesPersonChange={setSalesPerson}
-
-            onSalesChannelChange={setSalesChannel}
+            onSalesPersonCommit={handleSalesPersonCommit}
+            onSalesChannelChange={handleSalesChannelChange}
 
           />
 

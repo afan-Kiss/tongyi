@@ -170,13 +170,13 @@ export async function executeOutbound(input: OutboundDto): Promise<Ok<OperationR
 
 export async function executeInbound(input: InboundDto): Promise<Ok<OperationResult> | Fail> {
   const certNo = normalizeCertNo(input.certNo)
-  let bracelet = await braceletRepo.findByCert(certNo)
+  const bracelet = await braceletRepo.findByCert(certNo)
   if (!bracelet) {
-    const { upsertBraceletFromExcel } = await import('./excel-row-sync.service')
-    bracelet = await upsertBraceletFromExcel(certNo)
+    return {
+      ok: false,
+      message: `编号 ${certNo} 不存在（请先用标签入库登记，或确认该编号已在系统中）`,
+    }
   }
-  if (!bracelet) return { ok: false, message: `编号 ${certNo} 不存在（数据库与 Excel 均未找到，请确认 Excel 已打开且编号在第 4 列）` }
-  if (bracelet.qty === 1) return { ok: false, message: `${certNo} 已在库，请勿重复入库` }
 
   if (isExcelBridgeEnabled()) {
     const pre = await precheckExcelRow(certNo, bracelet.excelRow, bracelet.excelSheet)
@@ -191,7 +191,35 @@ export async function executeInbound(input: InboundDto): Promise<Ok<OperationRes
     : computeInboundRemark(bracelet.remark, userRemark, today)
   const snapshot = { ...bracelet }
 
-  const { updated, log } = await prisma.$transaction(async (tx) => {
+  // 已在库：仅同步 Excel 退货状态，不阻挡重复入库
+  if (bracelet.qty === 1) {
+    if (userRemark) {
+      await braceletRepo.update(bracelet.id, { remark: newRemark })
+    }
+
+    const log = await operationLogRepo.create({
+      braceletId: bracelet.id,
+      certNo,
+      opType: 'inbound',
+      snapshotJson: JSON.stringify(snapshot),
+      resultJson: JSON.stringify({ ...bracelet, remark: newRemark }),
+    })
+
+    const excelSync = await syncExcelWithRetry(() =>
+      syncInboundToExcel(
+        toExcelInboundPayload(
+          bracelet,
+          userRemark,
+          userRemark ? newRemark : (bracelet.remark ?? ''),
+          { recoveryOnly: !userRemark },
+        ),
+      ),
+    )
+    await recordExcelSync(log.id, excelSync, certNo)
+    return fullBraceletResult(certNo, log.id, excelSync)
+  }
+
+  const { log } = await prisma.$transaction(async (tx) => {
     const upd = await tx.bracelet.update({
       where: { id: bracelet.id },
       data: {
@@ -214,7 +242,7 @@ export async function executeInbound(input: InboundDto): Promise<Ok<OperationRes
         resultJson: JSON.stringify(upd),
       },
     })
-    return { updated: upd, log: lg }
+    return { log: lg }
   })
 
   const excelSync = await syncExcelWithRetry(() =>

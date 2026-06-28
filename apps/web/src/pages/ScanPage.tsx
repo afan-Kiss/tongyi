@@ -22,11 +22,10 @@ import { useScanWorkbench } from '@/hooks/useScanWorkbench'
 
 import type { Bracelet } from '@/api/types'
 
-type ScanMode = 'query' | 'returnLookup'
+type ScanMode = 'query' | 'orderLookup'
 
 function parseScanMode(raw: string | null): ScanMode {
-  if (raw === 'returnLookup') return 'returnLookup'
-  // 兼容旧链接 mode=outbound / mode=inbound
+  if (raw === 'orderLookup' || raw === 'returnLookup') return 'orderLookup'
   return 'query'
 }
 
@@ -79,7 +78,7 @@ export const ScanPage: React.FC = () => {
   }, [])
 
   useEffect(() => {
-    if (mode === 'returnLookup') return
+    if (mode === 'orderLookup') return
     clearScanInput()
     inputRef.current?.focus()
   }, [mode, clearScanInput])
@@ -197,7 +196,7 @@ export const ScanPage: React.FC = () => {
       <AnimatedTabs
         items={[
           { key: 'query', label: '查询' },
-          { key: 'returnLookup', label: '查退货' },
+          { key: 'orderLookup', label: '查订单' },
         ]}
         activeKey={mode}
         onChange={(k) => {
@@ -210,7 +209,7 @@ export const ScanPage: React.FC = () => {
           refocus()
         }}
       />
-      {mode === 'returnLookup' ? (
+      {mode === 'orderLookup' ? (
         <ReturnOrderSearchPanel />
       ) : (
       <div className="rounded-2xl border border-white/70 bg-white/80 p-6 text-center shadow-sm" data-scan-panel>

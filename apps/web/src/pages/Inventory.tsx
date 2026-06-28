@@ -27,23 +27,34 @@ function parseFilter(raw: string | null): StockFilter {
 export const InventoryPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams()
   const filter = parseFilter(searchParams.get('filter'))
+  const prefix = (searchParams.get('prefix') || '').trim()
   const [q, setQ] = useState('')
   const [items, setItems] = useState<Bracelet[]>([])
   const [total, setTotal] = useState(0)
   const [stats, setStats] = useState<DashboardStats | null>(null)
+  const [prefixStats, setPrefixStats] = useState<{ prefix: string; count: number }[]>([])
   const [selected, setSelected] = useState<Bracelet | null>(null)
   const [open, setOpen] = useState(false)
 
-  const listParams = useMemo(() => {
-    const params: Record<string, string | number> = { q, page: 1, pageSize: 200 }
+  const filterParams = useMemo(() => {
+    const params: Record<string, string | number> = {}
     if (filter !== 'all') params.filter = filter
     return params
-  }, [q, filter])
+  }, [filter])
+
+  const listParams = useMemo(() => {
+    const params: Record<string, string | number> = { q, page: 1, pageSize: 200, ...filterParams }
+    if (prefix) params.prefix = prefix
+    return params
+  }, [q, filterParams, prefix])
 
   const load = () => {
     api.listBracelets(listParams)
       .then((r) => { setItems(r.data.items); setTotal(r.data.total) })
     api.stats().then((r) => setStats(r.data)).catch(() => {})
+    api.prefixStats(filterParams)
+      .then((r) => setPrefixStats(r.data))
+      .catch(() => setPrefixStats([]))
   }
 
   useEffect(() => { load() }, [listParams])
@@ -54,6 +65,14 @@ export const InventoryPage: React.FC = () => {
     const params = new URLSearchParams(searchParams)
     if (next === 'all') params.delete('filter')
     else params.set('filter', next)
+    setSearchParams(params, { replace: true })
+  }
+
+  const setPrefix = (next: string) => {
+    const params = new URLSearchParams(searchParams)
+    const p = next.trim()
+    if (!p) params.delete('prefix')
+    else params.set('prefix', p)
     setSearchParams(params, { replace: true })
   }
 
@@ -71,9 +90,9 @@ export const InventoryPage: React.FC = () => {
     load()
   }
 
-  const countHint = filter === 'all' && stats
+  const countHint = filter === 'all' && !prefix && stats
     ? `共 ${total} 条（在库 ${stats.inStock} · 已出库 ${stats.outOfStock}）`
-    : `${FILTER_LABELS[filter]} ${total} 条`
+    : `${prefix ? `${prefix} · ` : ''}${FILTER_LABELS[filter]} ${total} 条`
 
   const filterChips: { key: StockFilter; label: string }[] = [
     { key: 'all', label: '全部' },
@@ -106,6 +125,38 @@ export const InventoryPage: React.FC = () => {
           </button>
         ))}
       </div>
+
+      {prefixStats.length > 0 && (
+        <div className="rounded-xl border border-slate-100 bg-white/70 px-3 py-2.5">
+          <p className="text-[10px] font-medium text-slate-400">编号前缀</p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {prefix && (
+              <button
+                type="button"
+                onClick={() => setPrefix('')}
+                className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] text-slate-500 hover:bg-slate-100"
+              >
+                清除前缀
+              </button>
+            )}
+            {prefixStats.map(({ prefix: p, count }) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setPrefix(prefix === p ? '' : p)}
+                className={`rounded-full px-2 py-0.5 text-[10px] font-medium transition ${
+                  prefix === p
+                    ? 'bg-violet-600 text-white shadow-sm'
+                    : 'border border-violet-100 bg-violet-50/80 text-violet-800 hover:bg-violet-100'
+                }`}
+              >
+                {p}
+                <span className={prefix === p ? 'text-violet-200' : 'text-violet-500'}> {count}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2">
         <input

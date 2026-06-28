@@ -320,11 +320,6 @@ async function searchOrders(query, options = {}) {
   const q = String(query || '').trim();
   if (!q) throw new Error('请输入查询内容（物流单号、订单号、买家昵称或手机号）');
 
-  // 物流单号 / P 开头订单号 → 千帆售后列表 API（HAR: after-sales/returns/v3）
-  if (isLogisticsQuery(q) || /^P\d{10,}$/i.test(q)) {
-    return searchAfterSalesByKeywords(q, options);
-  }
-
   const config = loadConfig();
   const accounts = listEnabledAccounts(config);
   if (!accounts.length) {
@@ -336,9 +331,10 @@ async function searchOrders(query, options = {}) {
   const merged = new Map();
   const errors = [];
   const perShop = new Map();
+  const maxPages = options.maxPages || 3;
 
   const settled = await Promise.allSettled(
-    accounts.map(async (account) => searchOrdersForAccount(account, startMs, endMs, q)),
+    accounts.map(async (account) => searchOrdersForAccount(account, startMs, endMs, q, maxPages)),
   );
 
   for (let i = 0; i < settled.length; i += 1) {
@@ -349,7 +345,7 @@ async function searchOrders(query, options = {}) {
       perShop.set(shopName, result.value.length);
       for (const order of result.value) {
         const key = `${order.shopTitle}::${order.orderNo}`;
-        if (!merged.has(key)) merged.set(key, order);
+        if (!merged.has(key)) merged.set(key, { ...order, searchSource: order.searchSource || 'order_page' });
       }
       continue;
     }
@@ -357,6 +353,20 @@ async function searchOrders(query, options = {}) {
     const msg = err instanceof XhsSignError ? err.message : String(err?.message || err);
     errors.push(`${shopName}：${msg}`);
     perShop.set(shopName, 0);
+  }
+
+  if (isLogisticsQuery(q) || /^P\d/i.test(q) || /^R\d/i.test(q) || q.length >= 6) {
+    try {
+      const fallback = await searchAfterSalesByKeywords(q, { ...options, maxPages: Math.max(maxPages, 2) });
+      for (const order of fallback.items || []) {
+        const key = `${order.shopTitle}::${order.orderNo}::${order.returnsId || ''}`;
+        if (!merged.has(key)) merged.set(key, order);
+        const shop = order.shopTitle || '未命名店铺';
+        perShop.set(shop, (perShop.get(shop) || 0) + 1);
+      }
+    } catch {
+      /* 售后列表补充失败时不阻断订单页结果 */
+    }
   }
 
   let items = [...merged.values()];
@@ -367,23 +377,13 @@ async function searchOrders(query, options = {}) {
     return Number(b.createdAt || 0) - Number(a.createdAt || 0);
   });
 
-  // 订单页搜索无结果时，再用售后 API 兜底（昵称搜索不到时）
-  if (!items.length && q.length >= 6) {
-    try {
-      const fallback = await searchAfterSalesByKeywords(q, { ...options, maxPages: 1 });
-      if (fallback.items?.length) return { ...fallback, message: `${fallback.message}（订单页未命中，已从售后列表匹配）` };
-    } catch {
-      /* 保持原空结果 */
-    }
-  }
-
   const shopSummary = accounts.map((a) => ({
     name: a.name || '未命名店铺',
     count: perShop.get(a.name || '未命名店铺') || 0,
   }));
 
   let message = items.length
-    ? `四店共 ${items.length} 条匹配`
+    ? `四店共 ${items.length} 条匹配（订单号/物流/买家综合搜索）`
     : '未找到匹配订单，可换关键词或扩大时间范围';
   if (errors.length && items.length) {
     message = `${message}（${errors.length} 个店铺查询失败）`;
@@ -395,6 +395,7 @@ async function searchOrders(query, options = {}) {
   return {
     query: q,
     days,
+    searchMode: 'comprehensive',
     message,
     warnings: errors,
     shopSummary,

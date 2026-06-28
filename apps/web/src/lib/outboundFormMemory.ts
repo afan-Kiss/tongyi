@@ -59,6 +59,17 @@ export function saveOutboundSalesSelection(person: string, channel: SalesChannel
   const c = channel === '线下' ? '线下' : '线上'
   if (!p) return
   const prev = loadOutboundFormMemory()
-  const persons = prev.salesPersons.includes(p) ? prev.salesPersons : [...prev.salesPersons, p]
+  const persons = prev.salesPersons.includes(p) ? prev.salesPersons : [p, ...prev.salesPersons.filter((x) => x !== p)].slice(0, 30)
   saveOutboundFormMemory({ salesPerson: p, salesChannel: c, salesPersons: persons })
+}
+
+/** 输入/选择销售人员时立即写入记忆（不必等出库成功） */
+export function rememberSalesPerson(person: string): void {
+  const p = person.trim()
+  if (!p) return
+  const prev = loadOutboundFormMemory()
+  const persons = prev.salesPersons.includes(p)
+    ? [p, ...prev.salesPersons.filter((x) => x !== p)]
+    : [p, ...prev.salesPersons]
+  saveOutboundFormMemory({ salesPerson: p, salesPersons: persons.slice(0, 30) })
 }

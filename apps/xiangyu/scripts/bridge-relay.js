@@ -26,6 +26,7 @@ const {
 const { triggerNativeSyncAfterSend, installNativeSyncBridge, parseSenderAppUid, buildSellerExtension } = require('./qianfan-native-sync');
 
 const PORT = Number(process.env.BRIDGE_PORT || 4727);
+const BRIDGE_VERSION = '2.1.0-ws-capture';
 const DEVTOOLS_HOST = process.env.DEVTOOLS_HOST || '127.0.0.1';
 
 function loadBridgeConfig() {
@@ -181,22 +182,60 @@ const WS_HOOK_SCRIPT = String.raw`(function(){
     }
     return null;
   };
+  function isQfImSocket(url) {
+    var u = String(url || '').toLowerCase();
+    if (u.indexOf('ws://') !== 0 && u.indexOf('wss://') !== 0) return false;
+    if (/sockjs|webpack|hmr|hot-update|livereload|sentry|\/log|analytics|beacon|\/track|monitor|stats|ping\b|devtools|vite/i.test(u)) return false;
+    return u.indexOf('impaas') >= 0
+      || u.indexOf('longlink') >= 0
+      || u.indexOf('walle') >= 0
+      || u.indexOf('edith') >= 0
+      || u.indexOf('xiaohongshu') >= 0
+      || u.indexOf('qianfan') >= 0;
+  }
+  function rankSocket(ws) {
+    var u = String(ws && ws.url || '').toLowerCase();
+    if (u.indexOf('impaas') >= 0) return 50;
+    if (u.indexOf('longlink') >= 0) return 40;
+    if (u.indexOf('walle') >= 0) return 30;
+    if (u.indexOf('edith') >= 0) return 25;
+    if (u.indexOf('qianfan') >= 0) return 20;
+    if (u.indexOf('xiaohongshu') >= 0) return 15;
+    return 10;
+  }
+  function cleanupSockets() {
+    window.__qfImpaasSockets = (window.__qfImpaasSockets || []).filter(function(w) {
+      return w && w.readyState === 1 && isQfImSocket(w.url);
+    });
+  }
+  function rememberSocket(ws) {
+    if (!ws || ws.readyState !== 1 || !isQfImSocket(ws.url)) return;
+    cleanupSockets();
+    var list = window.__qfImpaasSockets;
+    if (list.indexOf(ws) < 0) list.push(ws);
+    ws.__qfSendRank = rankSocket(ws);
+    list.sort(function(a, b) { return (b.__qfSendRank || 0) - (a.__qfSendRank || 0); });
+  }
   function track(ws) {
     try {
-      if (!ws || ws.readyState !== 1) return;
-      var u = String(ws.url || '');
-      if (u.includes('longlink') || u.includes('impaas') || u.includes('walle') || u.includes('xiaohongshu') || u.includes('edith')) {
-        if (!window.__qfImpaasSockets.includes(ws)) {
-          window.__qfImpaasSockets.push(ws);
-          if (u.includes('impaas')) ws.__qfSendRank = Math.max(ws.__qfSendRank || 0, 30);
-          if (u.includes('longlink')) ws.__qfSendRank = Math.max(ws.__qfSendRank || 0, 10);
-        }
-        hookWsMessage(ws);
-      }
+      if (!ws || ws.__qfTracked) return;
+      var rs = ws.readyState;
+      if (rs !== 0 && rs !== 1) return;
+      if (!isQfImSocket(ws.url)) return;
+      ws.__qfTracked = true;
+      function onOpen() { rememberSocket(ws); hookWsMessage(ws); }
+      function onClose() { cleanupSockets(); }
+      function onError() { cleanupSockets(); }
+      ws.addEventListener('open', onOpen);
+      ws.addEventListener('close', onClose);
+      ws.addEventListener('error', onError);
+      hookWsMessage(ws);
+      if (rs === 1) rememberSocket(ws);
     } catch (e) {}
   }
   window.__qfPickSendSocket = function(appCid) {
-    var list = (window.__qfImpaasSockets || []).filter(function(w){ return w && w.readyState === 1; });
+    cleanupSockets();
+    var list = window.__qfImpaasSockets || [];
     var best = null;
     var bestScore = -1;
     for (var i = 0; i < list.length; i++) {
@@ -215,6 +254,19 @@ const WS_HOOK_SCRIPT = String.raw`(function(){
     var n = Number(seq || 0);
     if (n > 0) window.__qfLastSendSeq = Math.max(window.__qfLastSendSeq || 0, n);
   };
+  window.__qfBridgeDiag = function() {
+    cleanupSockets();
+    var list = window.__qfImpaasSockets || [];
+    return {
+      hooked: window.__qfBridgeHooked === true,
+      socketCount: list.length,
+      socketUrls: list.map(function(w){ return String(w.url || ''); }),
+      readyStates: list.map(function(w){ return w.readyState; }),
+      targetTitle: document.title || '',
+      targetUrl: String(location.href || ''),
+      bridgeVersion: '__QF_BRIDGE_VERSION__',
+    };
+  };
   window.__qfBridgeHooked = window.__qfBridgeHooked || false;
   if (!window.__qfBridgeHooked) {
     window.__qfBridgeHooked = true;
@@ -228,10 +280,11 @@ const WS_HOOK_SCRIPT = String.raw`(function(){
     Object.setPrototypeOf(PatchedWebSocket, Orig);
     window.WebSocket = PatchedWebSocket;
   }
+  cleanupSockets();
   var existing = window.__qfImpaasSockets || [];
   for (var j = 0; j < existing.length; j++) hookWsMessage(existing[j]);
-  return { ok: true, sockets: existing.length };
-})()`;
+  return window.__qfBridgeDiag ? window.__qfBridgeDiag() : { ok: true, sockets: existing.length };
+})()`.replace('__QF_BRIDGE_VERSION__', BRIDGE_VERSION);
 
 let cachedClient = null;
 let cachedShopTitle = '';
@@ -1303,16 +1356,47 @@ function listQianfanShopPages(targets) {
   return out;
 }
 
+async function injectWsHook(client) {
+  const { Runtime, Page } = client;
+  await Page.enable();
+  await Page.addScriptToEvaluateOnNewDocument({ source: WS_HOOK_SCRIPT });
+  await Runtime.evaluate({ expression: WS_HOOK_SCRIPT, returnByValue: true });
+}
+
+async function getWsDiagnostics(client) {
+  const fallback = {
+    hooked: false,
+    socketCount: 0,
+    socketUrls: [],
+    readyStates: [],
+    targetTitle: '',
+    targetUrl: '',
+    bridgeVersion: BRIDGE_VERSION,
+  };
+  if (!client?.Runtime) return fallback;
+  try {
+    const result = await client.Runtime.evaluate({
+      expression: `(function(){
+        if (window.__qfBridgeDiag) return window.__qfBridgeDiag();
+        return ${JSON.stringify(fallback)};
+      })()`,
+      returnByValue: true,
+    });
+    return result?.result?.value || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 async function connectCaptureWatcher(pageInfo) {
   const { shopKey, shopTitle, webSocketDebuggerUrl } = pageInfo;
   if (!webSocketDebuggerUrl || captureWatchClients.has(shopKey)) return captureWatchClients.get(shopKey);
 
   const client = await CDP({ target: webSocketDebuggerUrl });
-  const { Runtime, Page, Network } = client;
+  const { Runtime, Network } = client;
   await Runtime.enable();
-  await Page.enable();
   await Network.enable();
-  await Runtime.evaluate({ expression: WS_HOOK_SCRIPT, returnByValue: true });
+  await injectWsHook(client);
   installSessionSniffer(client, shopTitle);
   installNetworkCapture(client, { dataDir: QIANFAN_DATA_DIR, shopTitle });
 
@@ -1376,11 +1460,10 @@ async function getCdpClient(shopTitle, options = {}) {
   await releaseCdpClient();
 
   const client = await CDP({ target: target.webSocketDebuggerUrl });
-  const { Runtime, Page, Network } = client;
+  const { Runtime, Network } = client;
   await Runtime.enable();
-  await Page.enable();
   await Network.enable();
-  await Runtime.evaluate({ expression: WS_HOOK_SCRIPT, returnByValue: true });
+  await injectWsHook(client);
   installSessionSniffer(client, shopKey);
   installNetworkCapture(client, { dataDir: QIANFAN_DATA_DIR, shopTitle: shopKey });
 
@@ -1875,7 +1958,13 @@ async function sendPayloadViaWs(client, payloadStr, appCid) {
   const result = await Runtime.evaluate({ expression: expr, returnByValue: true });
   const value = result?.result?.value;
   if (!value?.ok) {
-    throw new Error('未找到可用的千帆连接，请确认千帆客服软件已打开');
+    const diag = await getWsDiagnostics(client);
+    if (diag.hooked && diag.socketCount === 0) {
+      throw new Error(
+        'DevTools 已连接，hook 已注入，但当前页面还没有捕获到 IM WebSocket。可能是 hook 注入晚于千帆 IM WebSocket 创建，请刷新或重开千帆工作台后再试。',
+      );
+    }
+    throw new Error(`未找到可用的 IM WebSocket（当前 ${value?.count ?? diag.socketCount ?? 0} 条），请确认千帆客服工作台已打开并保持登录`);
   }
   return value;
 }
@@ -2636,6 +2725,75 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === 'GET' && url.pathname === '/diagnostics') {
+      const shopTitle = url.searchParams.get('shopTitle') || url.searchParams.get('shop') || '';
+      if (shopTitle) {
+        try {
+          const client = await getCdpClient(shopTitle, { force: false });
+          const diag = await getWsDiagnostics(client);
+          const ok = diag.hooked === true && diag.socketCount > 0;
+          const message =
+            ok
+              ? 'IM WebSocket 已捕获'
+              : diag.hooked && diag.socketCount === 0
+                ? 'DevTools 已连接，hook 已注入，但当前页面还没有捕获到 IM WebSocket。可能是 hook 注入晚于千帆 IM WebSocket 创建，请刷新或重开千帆工作台后再试。'
+                : '千帆页面 hook 未注入或未连接';
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok, message, ...diag }));
+        } catch (err) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              ok: false,
+              message: String(err.message || err),
+              hooked: false,
+              socketCount: 0,
+              socketUrls: [],
+              readyStates: [],
+              bridgeVersion: BRIDGE_VERSION,
+            }),
+          );
+        }
+        return;
+      }
+
+      const targets = await fetchDevtoolsTargets();
+      const shops = listQianfanShopPages(targets);
+      const results = [];
+      for (const shop of shops) {
+        try {
+          const client = await connectCaptureWatcher(shop);
+          const diag = await getWsDiagnostics(client);
+          const ok = diag.hooked === true && diag.socketCount > 0;
+          results.push({
+            shopTitle: shop.shopTitle,
+            ok,
+            message:
+              ok
+                ? 'IM WebSocket 已捕获'
+                : diag.hooked && diag.socketCount === 0
+                  ? 'DevTools 已连接，hook 已注入，但当前页面还没有捕获到 IM WebSocket。可能是 hook 注入晚于千帆 IM WebSocket 创建，请刷新或重开千帆工作台后再试。'
+                  : '千帆页面 hook 未注入或未连接',
+            ...diag,
+          });
+        } catch (err) {
+          results.push({
+            shopTitle: shop.shopTitle,
+            ok: false,
+            message: String(err.message || err),
+            hooked: false,
+            socketCount: 0,
+            socketUrls: [],
+            readyStates: [],
+            bridgeVersion: BRIDGE_VERSION,
+          });
+        }
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: results.some((r) => r.ok), bridgeVersion: BRIDGE_VERSION, shops: results }));
+      return;
+    }
+
     if (req.method === 'GET' && url.pathname === '/capture/status') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true, ...getCaptureStatus(QIANFAN_DATA_DIR) }));
@@ -2680,7 +2838,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`[bridge-relay] http://127.0.0.1:${PORT}`);
-  console.log(`[bridge-relay] POST /send  /open-session  GET /health  GET /ark-ticket  GET /capture/status`);
+  console.log(`[bridge-relay] POST /send  /open-session  GET /health  GET /diagnostics  GET /ark-ticket  GET /capture/status`);
   console.log(`[bridge-relay] 录制说明: 启动后会自动监听千帆页面；手动发图/视频时终端会输出 [bridge-capture]`);
   console.log(`[bridge-relay] DevTools ${DEVTOOLS_HOST}:${DEVTOOLS_PORT}`);
   console.log(`[bridge-relay] 千帆数据目录 ${QIANFAN_DATA_DIR}`);

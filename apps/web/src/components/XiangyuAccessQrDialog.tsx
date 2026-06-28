@@ -2,8 +2,15 @@ import React, { useCallback, useEffect, useState } from 'react'
 import QRCode from 'qrcode'
 import { QrCode, X } from 'lucide-react'
 
-import { settingsApi } from '@/api/endpoints'
 import { buildLanXiangyuUrl, isSecureLanMobileCameraUrl } from '@/lib/photoRelayUrl'
+
+interface MobileInfoResponse {
+  data?: {
+    lanIps?: string[]
+    port?: number
+    mobileHttpsPort?: number
+  }
+}
 
 const SCAN_HINT =
   '请用 Safari、Chrome 或手机自带「相机」扫码打开，不要用微信扫一扫'
@@ -24,9 +31,19 @@ export const XiangyuAccessQrDialog: React.FC<Props> = ({ open, onClose }) => {
     let cancelled = false
     ;(async () => {
       try {
-        const r = await settingsApi.status()
+        const res = await fetch('/api/v1/photo-relay/mobile-info')
+        const json = (await res.json()) as MobileInfoResponse
         if (cancelled) return
-        const url = buildLanXiangyuUrl(r.data)
+        const info = json.data
+        const url = buildLanXiangyuUrl(
+          info
+            ? {
+                lanIps: info.lanIps || [],
+                port: info.port ?? 4725,
+                mobileHttpsPort: info.mobileHttpsPort ?? 4730,
+              }
+            : null,
+        )
         setHttpsReady(isSecureLanMobileCameraUrl(url || ''))
         setPageUrl(url || '')
         if (url) {

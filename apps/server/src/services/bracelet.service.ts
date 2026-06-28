@@ -137,11 +137,52 @@ export async function applyInbound(input: InboundInput) {
   const certNo = normalizeCertNo(input.certNo)
   const bracelet = await prisma.bracelet.findUnique({ where: { certNo } })
   if (!bracelet) return { ok: false as const, message: `编号 ${certNo} 不存在` }
-  if (bracelet.qty === 1) return { ok: false as const, message: `${certNo} 已在库，请勿重复入库` }
 
   const today = todayStr()
-  const newRemark = computeInboundRemark(bracelet.remark, input.remarkText, today)
+  const userRemark = (input.remarkText || '').trim()
+  const newRemark = userRemark
+    ? computeInboundRemark(bracelet.remark, userRemark, today)
+    : (bracelet.remark || '')
   const snapshot = { ...bracelet }
+
+  if (bracelet.qty === 1) {
+    let resultBracelet = bracelet
+    if (userRemark) {
+      resultBracelet = await prisma.bracelet.update({
+        where: { id: bracelet.id },
+        data: { remark: newRemark },
+      })
+    }
+
+    const log = await prisma.operationLog.create({
+      data: {
+        braceletId: bracelet.id,
+        certNo,
+        opType: 'inbound',
+        snapshotJson: JSON.stringify(snapshot),
+        resultJson: JSON.stringify(resultBracelet),
+      },
+    })
+
+    const excelSync = await syncToExcelBridge('inbound', {
+      certNo,
+      remark: userRemark,
+      fullRemark: userRemark ? newRemark : undefined,
+      recoveryOnly: !userRemark,
+      excelRow: bracelet.excelRow,
+      excelSheet: bracelet.excelSheet,
+    })
+
+    await prisma.operationLog.update({
+      where: { id: log.id },
+      data: {
+        excelSynced: excelSync.ok,
+        excelSyncMsg: serializeExcelSyncMsg(excelSync),
+      },
+    })
+
+    return { ok: true as const, bracelet: resultBracelet, logId: log.id, excelSync }
+  }
 
   const updated = await prisma.bracelet.update({
     where: { id: bracelet.id },
@@ -166,7 +207,9 @@ export async function applyInbound(input: InboundInput) {
 
   const excelSync = await syncToExcelBridge('inbound', {
     certNo,
-    remark: input.remarkText || '',
+    remark: userRemark,
+    fullRemark: userRemark ? newRemark : undefined,
+    recoveryOnly: !userRemark,
     excelRow: bracelet.excelRow,
     excelSheet: bracelet.excelSheet,
   })

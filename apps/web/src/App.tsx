@@ -22,7 +22,7 @@ import { MobileCameraPage } from '@/pages/MobileCameraPage'
 
 import { SettingsPage } from '@/pages/Settings'
 
-import { XiangyuPage } from '@/pages/XiangyuPage'
+import { XiangyuPublicLayout } from '@/components/XiangyuPublicLayout'
 
 import { LoginPage } from '@/pages/LoginPage'
 
@@ -80,12 +80,9 @@ const AuthenticatedRoutes: React.FC = () => (
 
           </Route>
 
-          <Route path="/xiangyu" element={<XiangyuPage />} />
-
 
 
           <Route path="/" element={<LegacyRedirect to="/inventory" />} />
-
           <Route path="/scan" element={<LegacyRedirect to="/inventory/scan" />} />
 
           <Route path="/inbound" element={<LegacyRedirect to="/inventory/inbound?type=register" />} />
@@ -116,6 +113,7 @@ export const App: React.FC = () => (
       {/* 手机拍照：独立公共页（生产环境由 mobile-camera.html 直出，此处作开发/兜底） */}
       <Route path="/inventory/mobile-camera" element={<MobileCameraPage />} />
       <Route path="/mobile/capture" element={<MobileCaptureRedirect />} />
+      <Route path="/xiangyu" element={<XiangyuPublicLayout />} />
       <Route path="/*" element={<AuthenticatedRoutes />} />
     </Routes>
   </BrowserRouter>

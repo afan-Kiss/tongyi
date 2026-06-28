@@ -6,6 +6,7 @@ import {
   queryByScanCode,
   queryDashboard,
   queryList,
+  queryPrefixCounts,
 } from '../../services/inventory-query.service'
 import { updateBraceletByCert } from '../../services/bracelet-update.service'
 import { sendErr, sendOk } from '../../utils/api-response'
@@ -16,16 +17,27 @@ inventoryRouter.get('/stats', async (_req, res) => {
   sendOk(res, await queryDashboard())
 })
 
-inventoryRouter.get('/', async (req, res) => {
+function parseListQuery(req: { query: Record<string, unknown> }) {
   const filter = String(req.query.filter || '')
-  sendOk(res, await queryList({
+  return {
     q: String(req.query.q || ''),
     inStockOnly: filter === 'inStock' || req.query.inStockOnly === '1',
     outStockOnly: filter === 'outStock',
-    todayOp: filter === 'todayInbound' ? 'inbound' : filter === 'todayOutbound' ? 'outbound' : undefined,
+    todayOp:
+      filter === 'todayInbound' ? ('inbound' as const) : filter === 'todayOutbound' ? ('outbound' as const) : undefined,
+    certPrefix: String(req.query.prefix || req.query.certPrefix || '').trim() || undefined,
     page: Number(req.query.page || 1),
     pageSize: Number(req.query.pageSize || 50),
-  }))
+  }
+}
+
+inventoryRouter.get('/prefix-stats', async (req, res) => {
+  const { q: _q, certPrefix: _p, page: _pg, pageSize: _ps, ...rest } = parseListQuery(req)
+  sendOk(res, await queryPrefixCounts(rest))
+})
+
+inventoryRouter.get('/', async (req, res) => {
+  sendOk(res, await queryList(parseListQuery(req)))
 })
 
 inventoryRouter.get('/by-cert/:certNo', async (req, res) => {

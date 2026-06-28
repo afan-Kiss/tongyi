@@ -1,5 +1,7 @@
 import { todayStr, normalizeCertNo } from '../domain/inventory.rules'
+import { extractCertPrefix, CERT_PREFIXES } from '../domain/cert-no.rules'
 import { braceletRepo, operationLogRepo } from '../repositories/bracelet.repository'
+import { prisma } from '../lib/prisma'
 import { presentOperationLogs } from '../utils/operation-log.presenter'
 import { presentBracelet } from '../utils/media-presenter'
 import { healBraceletAttachments } from './bracelet-meta-restore.service'
@@ -107,36 +109,119 @@ export async function queryByScanCode(
 const TODAY_INBOUND_TYPES = ['inbound', 'new_inbound', 'register'] as const
 const TODAY_OUTBOUND_TYPES = ['outbound'] as const
 
-export async function queryList(params: {
+export type InventoryListFilter = {
   q?: string
   inStockOnly?: boolean
   outStockOnly?: boolean
   todayOp?: 'inbound' | 'outbound'
-  page?: number
-  pageSize?: number
-}) {
-  const page = params.page || 1
-  const pageSize = params.pageSize || 50
-  const where: Record<string, unknown> = {}
-  if (params.inStockOnly) where.qty = 1
-  if (params.outStockOnly) where.qty = 0
+  certPrefix?: string
+}
+
+async function loadDistinctCertPrefixes(): Promise<string[]> {
+  const rows = await prisma.bracelet.findMany({ select: { certNo: true } })
+  const set = new Set<string>()
+  for (const row of rows) {
+    const p = extractCertPrefix(row.certNo)
+    if (p) set.add(p)
+  }
+  return [...set].sort((a, b) => b.length - a.length || a.localeCompare(b))
+}
+
+function certPrefixWhere(prefix: string, allPrefixes: string[]): Record<string, unknown> {
+  const p = prefix.trim().toUpperCase()
+  if (!p || p === '其他') {
+    if (!allPrefixes.length) return { id: '__none__' }
+    return {
+      NOT: {
+        OR: allPrefixes.map((pref) => ({ certNo: { startsWith: pref } })),
+      },
+    }
+  }
+  const longer = allPrefixes.filter((x) => x.startsWith(p) && x.length > p.length)
+  if (!longer.length) return { certNo: { startsWith: p } }
+  return {
+    AND: [
+      { certNo: { startsWith: p } },
+      ...longer.map((lp) => ({ certNo: { not: { startsWith: lp } } })),
+    ],
+  }
+}
+
+async function buildListWhere(
+  params: InventoryListFilter,
+  allPrefixes?: string[],
+): Promise<Record<string, unknown>> {
+  const clauses: Record<string, unknown>[] = []
+  if (params.inStockOnly) clauses.push({ qty: 1 })
+  if (params.outStockOnly) clauses.push({ qty: 0 })
   if (params.todayOp) {
     const [y, m, day] = todayStr().split('-').map(Number)
     const since = new Date(y, m - 1, day)
     const types = params.todayOp === 'outbound' ? [...TODAY_OUTBOUND_TYPES] : [...TODAY_INBOUND_TYPES]
     const ids = await operationLogRepo.braceletIdsToday(types, since)
-    where.id = { in: ids.length ? ids : ['__none__'] }
+    clauses.push({ id: { in: ids.length ? ids : ['__none__'] } })
   }
   if (params.q) {
     const q = params.q.trim()
-    where.OR = [
-      { certNo: { contains: q.toUpperCase() } },
-      { barcodeValue: { contains: q } },
-      { batch: { contains: q } },
-      { category: { contains: q } },
-      { remark: { contains: q } },
-    ]
+    clauses.push({
+      OR: [
+        { certNo: { contains: q.toUpperCase() } },
+        { barcodeValue: { contains: q } },
+        { batch: { contains: q } },
+        { category: { contains: q } },
+        { remark: { contains: q } },
+      ],
+    })
   }
+  if (params.certPrefix) {
+    const prefixes = allPrefixes ?? (await loadDistinctCertPrefixes())
+    clauses.push(certPrefixWhere(params.certPrefix, prefixes))
+  }
+  if (!clauses.length) return {}
+  if (clauses.length === 1) return clauses[0] as Record<string, unknown>
+  return { AND: clauses }
+}
+
+export async function queryPrefixCounts(params: InventoryListFilter = {}) {
+  const where = await buildListWhere({
+    inStockOnly: params.inStockOnly,
+    outStockOnly: params.outStockOnly,
+    todayOp: params.todayOp,
+  })
+  const rows = await prisma.bracelet.findMany({
+    where,
+    select: { certNo: true },
+    orderBy: { certNo: 'asc' },
+  })
+  const counts = new Map<string, number>()
+  for (const row of rows) {
+    const key = extractCertPrefix(row.certNo) ?? '其他'
+    counts.set(key, (counts.get(key) || 0) + 1)
+  }
+  const orderIndex = (p: string) => {
+    const i = (CERT_PREFIXES as readonly string[]).indexOf(p)
+    return i >= 0 ? i : 999
+  }
+  return [...counts.entries()]
+    .map(([prefix, count]) => ({ prefix, count }))
+    .sort((a, b) => {
+      if (a.prefix === '其他') return 1
+      if (b.prefix === '其他') return -1
+      const oa = orderIndex(a.prefix)
+      const ob = orderIndex(b.prefix)
+      if (oa !== ob) return oa - ob
+      return a.prefix.localeCompare(b.prefix, 'zh-CN')
+    })
+}
+
+export async function queryList(params: InventoryListFilter & {
+  page?: number
+  pageSize?: number
+}) {
+  const page = params.page || 1
+  const pageSize = params.pageSize || 50
+  const allPrefixes = params.certPrefix ? await loadDistinctCertPrefixes() : undefined
+  const where = await buildListWhere(params, allPrefixes)
   const [items, total] = await braceletRepo.findMany(where, page, pageSize)
   return { items: items.map(presentBracelet), total, page, pageSize }
 }

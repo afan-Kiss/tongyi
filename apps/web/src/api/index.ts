@@ -30,6 +30,7 @@ import {
 export const api = {
   health: healthApi.check,
   stats: inventoryApi.stats,
+  prefixStats: inventoryApi.prefixStats,
   listBracelets: inventoryApi.list,
   getByCert: inventoryApi.getByCert,
   getByCertDbOnly: (certNo: string) => inventoryApi.getByCert(certNo, { dbOnly: true }),

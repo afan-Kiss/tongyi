@@ -32,7 +32,7 @@ export const ReturnOrderSearchPanel: React.FC = () => {
 
   const [loading, setLoading] = useState(false)
 
-  const [status, setStatus] = useState('输入物流单号、订单号(P开头)或买家昵称，查询四店售后/订单（近 30 天）')
+  const [status, setStatus] = useState('输入订单号(P开头)、发货/退货物流单号或买家昵称，四店综合搜索（近 30 天）')
 
   const [error, setError] = useState('')
 
@@ -169,7 +169,7 @@ export const ReturnOrderSearchPanel: React.FC = () => {
 
       <p className="text-sm text-slate-600">
 
-        支持物流单号（如 SF…）、订单号（P 开头）、买家昵称；匹配后可在千帆打开售后详情
+        综合搜索：订单号、发货物流单号、退货物流单号、买家昵称；匹配后可复制订单号或在千帆打开详情
 
       </p>
 
@@ -179,7 +179,7 @@ export const ReturnOrderSearchPanel: React.FC = () => {
 
           className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-violet-300"
 
-          placeholder="物流单号 / 订单号 / 买家昵称"
+          placeholder="订单号 / 发货物流 / 退货物流 / 买家昵称"
 
           value={query}
 

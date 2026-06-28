@@ -1,5 +1,19 @@
+function apiRoot() {
+  const p = window.location.pathname || '';
+  if (p === '/xiangyu-proxy' || p.startsWith('/xiangyu-proxy/')) return '/xiangyu-proxy/api';
+  return '/api';
+}
+
+function extractErrorPayload(data) {
+  const direct = String(data?.error || data?.message || '').trim();
+  if (direct) return direct;
+  const raw = String(data?.raw || '').trim();
+  if (!raw || raw.startsWith('<!')) return '';
+  return raw.length > 180 ? `${raw.slice(0, 180)}…` : raw;
+}
+
 async function request(path, options = {}, attempt = 0) {
-  const res = await fetch(`/api${path}`, {
+  const res = await fetch(`${apiRoot()}${path}`, {
     credentials: 'include',
     ...options,
     headers: {
@@ -17,7 +31,7 @@ async function request(path, options = {}, attempt = 0) {
   }
 
   if (!res.ok) {
-    const rawMsg = String(data.error || data.message || '').trim();
+    const rawMsg = extractErrorPayload(data);
     const retryAuth =
       res.status === 401 &&
       attempt < 3 &&
@@ -26,7 +40,7 @@ async function request(path, options = {}, attempt = 0) {
       await new Promise((r) => setTimeout(r, 350 * (attempt + 1)));
       return request(path, options, attempt + 1);
     }
-    throw new Error(toFriendlyError(rawMsg));
+    throw new Error(toFriendlyError(rawMsg, res.status));
   }
   if (data.result && typeof data.result === 'object') {
     return { ...data, ...data.result };
@@ -34,9 +48,14 @@ async function request(path, options = {}, attempt = 0) {
   return data;
 }
 
-function toFriendlyError(raw) {
+function toFriendlyError(raw, status = 0) {
   const s = String(raw || '').trim();
-  if (!s) return '出了点问题，请稍后再试';
+  if (!s) {
+    if (status === 413) return '图片或视频太大，请减少张数或降低画质后重试';
+    if (status === 502 || status === 503) return '祥钰服务暂时不可用，请稍后再试（若持续出现请联系管理员重启）';
+    if (status === 404) return '接口未找到，请刷新页面；若仍失败请重启本系统';
+    return status ? `出了点问题（HTTP ${status}），请稍后再试` : '出了点问题，请稍后再试';
+  }
   if (/请先登录|登录状态同步|AUTH_REQUIRED/i.test(s)) {
     return '系统登录状态同步中，请稍候再点「刷新订单」（无需另注册账号）';
   }

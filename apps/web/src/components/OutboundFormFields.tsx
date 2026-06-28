@@ -1,8 +1,7 @@
 import React from 'react'
 
-
-
 import { XhsOrderMatchPanel } from '@/components/XhsOrderMatchPanel'
+import { SalesPersonCombobox } from '@/components/SalesPersonCombobox'
 
 import type { SalesChannel } from '@/lib/outboundFormMemory'
 
@@ -37,6 +36,8 @@ type Props = {
   onRemarkChange: (v: string) => void
 
   onSalesPersonChange: (v: string) => void
+
+  onSalesPersonCommit: (v: string) => void
 
   onSalesChannelChange: (v: SalesChannel) => void
 
@@ -98,13 +99,11 @@ export const OutboundFormFields: React.FC<Props> = ({
 
   onSalesPersonChange,
 
+  onSalesPersonCommit,
+
   onSalesChannelChange,
 
 }) => {
-
-  const personListId = 'outbound-sales-persons'
-
-
 
   return (
 
@@ -193,31 +192,19 @@ export const OutboundFormFields: React.FC<Props> = ({
 
       <Field label="销售人员">
 
-        <input
-
-          className={inputClass}
-
-          list={personListId}
-
-          placeholder="如：飞云、子杰"
+        <SalesPersonCombobox
 
           value={salesPerson}
 
+          options={salesPersonOptions}
+
           disabled={disabled}
 
-          onChange={(e) => onSalesPersonChange(e.target.value)}
+          onChange={onSalesPersonChange}
+
+          onCommit={onSalesPersonCommit}
 
         />
-
-        <datalist id={personListId}>
-
-          {salesPersonOptions.map((name) => (
-
-            <option key={name} value={name} />
-
-          ))}
-
-        </datalist>
 
       </Field>
 
