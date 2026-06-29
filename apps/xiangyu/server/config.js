@@ -25,6 +25,8 @@ const DEFAULT_CONFIG = {
     apiMethod: 'POST',
     apiBody: '',
     cacheTtlMs: 45000,
+    searchCacheSyncIntervalMs: 180 * 60 * 1000,
+    searchCacheDays: 30,
   },
   bridge: {
     mode: 'http',

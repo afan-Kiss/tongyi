@@ -9,8 +9,10 @@ import { ExcelSyncPanel } from '@/components/ExcelSyncPanel'
 import { ScanNotFoundDialog } from '@/components/ScanNotFoundDialog'
 
 import { ReturnOrderSearchPanel } from '@/components/ReturnOrderSearchPanel'
+import { ScanRecentOperationsPanel } from '@/components/ScanRecentOperationsPanel'
 
 import { inventoryApi } from '@/api/endpoints'
+import { api } from '@/lib/api'
 
 import { isPhotoAsset } from '@/lib/mediaAsset'
 import { MediaThumbImg } from '@/components/MediaThumbImg'
@@ -19,8 +21,10 @@ import { emitInventoryRefresh } from '@/lib/inventoryRefresh'
 import { scheduleScanRefocus } from '@/lib/scanFocus'
 import {
   shouldFallbackToOrderSearch,
+  shouldRouteDirectToOrderSearch,
   shouldTryInventoryScan,
 } from '@/lib/scanInputRouting'
+import { fetchXhsCookieHealth, fetchXhsSearchCacheStatus, type XhsCookieHealthResult, type XhsSearchCacheStatus } from '@/lib/xhsOrdersApi'
 import { useScanWorkbench } from '@/hooks/useScanWorkbench'
 
 import type { Bracelet } from '@/api/types'
@@ -55,6 +59,8 @@ export const ScanPage: React.FC = () => {
   const [orderQuery, setOrderQuery] = useState('')
   const [orderSearchToken, setOrderSearchToken] = useState(0)
   const [orderSearching, setOrderSearching] = useState(false)
+  const [cookieHealth, setCookieHealth] = useState<XhsCookieHealthResult | null>(null)
+  const [searchCacheStatus, setSearchCacheStatus] = useState<XhsSearchCacheStatus | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const scanGenRef = useRef(0)
   const navigate = useNavigate()
@@ -67,6 +73,20 @@ export const ScanPage: React.FC = () => {
 
   useEffect(() => {
     inputRef.current?.focus()
+  }, [])
+
+  useEffect(() => {
+    const loadMeta = () => {
+      fetchXhsCookieHealth()
+        .then(setCookieHealth)
+        .catch(() => setCookieHealth(null))
+      fetchXhsSearchCacheStatus()
+        .then(setSearchCacheStatus)
+        .catch(() => setSearchCacheStatus(null))
+    }
+    loadMeta()
+    const timer = window.setInterval(loadMeta, 10 * 60 * 1000)
+    return () => window.clearInterval(timer)
   }, [])
 
   const refocus = useCallback(() => {
@@ -143,6 +163,7 @@ export const ScanPage: React.FC = () => {
       const r = await inventoryApi.scanLookup(scanned, { includeList: true, importFromExcel: true })
       if (gen !== scanGenRef.current) return true
       const { items, importedFromExcel, needsPhoto, excelSource } = r.data
+      if (!items.length) return false
       if (items.length === 1) {
         openFound(scanned, items[0], undefined, {
           importedFromExcel,
@@ -200,7 +221,14 @@ export const ScanPage: React.FC = () => {
       return
     }
 
-    runOrderSearch(scanned)
+    if (shouldRouteDirectToOrderSearch(scanned)) {
+      runOrderSearch(scanned)
+      return
+    }
+
+    setResultView('idle')
+    setStatus(`无法识别「${scanned}」：请扫货号/条码查库存，或输入完整订单号/物流单号`)
+    refocus()
   }
 
   const onScanKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -218,13 +246,68 @@ export const ScanPage: React.FC = () => {
     navigate(`/inventory/inbound?type=register&certNo=${encodeURIComponent(code)}`)
   }
 
+  const openCertFromLog = useCallback(
+    async (certNo: string) => {
+      try {
+        const r = await api.getByCert(certNo)
+        openFound(certNo, r.data)
+        refocus()
+      } catch {
+        setStatus(`无法打开 ${certNo}`)
+        refocus()
+      }
+    },
+    [openFound, refocus],
+  )
+
   return (
     <div className="space-y-4">
       <h2 className="text-xl font-semibold text-slate-900">扫码工作台</h2>
 
+      {cookieHealth && !cookieHealth.allOk && (
+        <div
+          role="alert"
+          className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+        >
+          <p className="font-medium">店铺 Cookie 不可用，订单/退货查询会失败</p>
+          <p className="mt-1 text-xs text-amber-900/90">{cookieHealth.message}</p>
+          {cookieHealth.accounts.filter((a) => !a.ok).length > 0 && (
+            <ul className="mt-2 space-y-1 text-xs">
+              {cookieHealth.accounts
+                .filter((a) => !a.ok)
+                .map((a) => (
+                  <li key={a.name}>
+                    <span className="font-medium">{a.name}</span>
+                    {a.error ? `：${a.error}` : ''}
+                  </li>
+                ))}
+            </ul>
+          )}
+          <p className="mt-2 text-xs text-amber-800/90">
+            请在辅助出库软件或主播分析服务器更新 Cookie 后，运行同步脚本刷新本地配置。
+          </p>
+        </div>
+      )}
+
+      {searchCacheStatus && (
+        <p className="text-xs text-slate-500">
+          订单/售后本地缓存：
+          {searchCacheStatus.syncInProgress
+            ? ' 正在同步四店数据…'
+            : searchCacheStatus.orderCount > 0
+              ? ` 已缓存 ${searchCacheStatus.orderCount} 条${
+                  searchCacheStatus.syncedAt
+                    ? `（${new Date(searchCacheStatus.syncedAt).toLocaleString('zh-CN')}）`
+                    : ''
+                }`
+              : ' 尚未建立，首次同步约需 1–3 分钟'}
+          {searchCacheStatus.stale && searchCacheStatus.orderCount > 0 ? ' · 缓存偏旧，后台将自动刷新' : ''}
+        </p>
+      )}
+
       <div className="rounded-2xl border border-white/70 bg-white/80 p-6 text-center shadow-sm" data-scan-panel>
         <p className="text-sm text-slate-500">
-          扫<strong>货号/条形码</strong>查库存；输入<strong>订单、物流、地址、昵称</strong>等任意片段则查四店订单
+          扫<strong>货号/条形码</strong>查库存；输入<strong>完整订单号（P）</strong>、<strong>售后单号（R）</strong>或<strong>完整物流单号</strong>查四店订单
         </p>
         <input
           ref={inputRef}
@@ -232,7 +315,7 @@ export const ScanPage: React.FC = () => {
           type="text"
           onKeyDown={onScanKeyDown}
           onBlur={onScanBlur}
-          placeholder="货号 / 条码 / 订单 / 物流 / 地址…"
+          placeholder="货号 / 条码 / 完整订单号或物流单号"
           autoComplete="off"
           spellCheck={false}
           disabled={orderSearching}
@@ -343,6 +426,8 @@ export const ScanPage: React.FC = () => {
           </Link>
         </p>
       </div>
+
+      <ScanRecentOperationsPanel onOpenCert={(certNo) => void openCertFromLog(certNo)} />
 
       {(excelLoading || excelSync || partialSuccess) && resultView === 'inventory' && (
         <ExcelSyncPanel

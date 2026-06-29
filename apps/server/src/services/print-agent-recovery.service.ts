@@ -64,6 +64,15 @@ export async function recoverPrintAgent(reason: string): Promise<{ ok: boolean; 
   if (isProcessManagerShuttingDown()) {
     return { ok: false, message: '系统正在关闭，已跳过打印 Agent 恢复' }
   }
+  if (await pingPrintAgent(2500)) {
+    return { ok: true, message: '打印 Agent 已在线' }
+  }
+  if (isPrintAgentPortListening()) {
+    await sleepMs(800)
+    if (await pingPrintAgent(5000)) {
+      return { ok: true, message: '打印 Agent 已在线' }
+    }
+  }
   const port = getPrintAgentPort()
   console.warn(`[print-agent-recovery] 正在恢复打印 Agent（原因: ${reason}）…`)
   stopPrintAgentProcess()

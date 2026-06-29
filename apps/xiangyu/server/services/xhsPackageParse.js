@@ -5,6 +5,7 @@ const {
   extractShipExpressNo,
   extractReturnExpressNo,
 } = require('./orderSearchMatch');
+const { pickBestBuyerNick } = require('./buyerNickDisplay');
 
 const TZ_OFFSET_MS = 8 * 3600000;
 
@@ -56,6 +57,7 @@ function buildReceiverAppUid(buyerUserId) {
 }
 
 function extractNickName(pkg) {
+  if (!pkg || typeof pkg !== 'object') return '';
   const ui = pkg.userInfo || {};
   const bi = pkg.buyer_info || {};
   const uinfo = pkg.user_info || {};
@@ -64,19 +66,20 @@ function extractNickName(pkg) {
     pkg.nickname,
     pkg.buyerNickName,
     pkg.buyerNickname,
-    pkg.buyerName,
+    pkg.buyerNick,
+    pkg.nick_name,
+    pkg.user_nick,
     bi.nickName,
     bi.nickname,
+    bi.nick_name,
     ui.nickName,
     ui.nickname,
+    ui.nick_name,
     uinfo.nickName,
     uinfo.nickname,
+    uinfo.nick_name,
   ];
-  for (const f of fields) {
-    const v = str(f);
-    if (v) return v;
-  }
-  return '';
+  return pickBestBuyerNick(...fields);
 }
 
 function orderNoAsStr(val) {

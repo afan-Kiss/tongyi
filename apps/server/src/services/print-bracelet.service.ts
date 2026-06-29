@@ -2,6 +2,7 @@ import { getPrintAgentUrl } from '../config/env'
 import type { ApiError } from '../types/api.types'
 import {
   classifyPrintFailure,
+  isPrintAgentPortListening,
   pingPrintAgent,
   recoverPrintAgent,
 } from './print-agent-recovery.service'
@@ -64,11 +65,21 @@ export function printFailureResponse(rawMessage: string, extra?: Partial<ApiErro
   }
 }
 
+async function waitForPrintAgentPing(maxWaitMs = 6000): Promise<boolean> {
+  const started = Date.now()
+  while (Date.now() - started < maxWaitMs) {
+    if (await pingPrintAgent(2500)) return true
+    if (!isPrintAgentPortListening()) return false
+    await new Promise((r) => setTimeout(r, 500))
+  }
+  return pingPrintAgent(2500)
+}
+
 /** 打印吊牌：Agent 异常时自动重启并重试一次 */
 export async function printBraceletTagWithRecovery(
   payload: PrintBraceletPayload,
 ): Promise<{ ok: true; message: string; recovered?: boolean } | ApiError> {
-  if (!(await pingPrintAgent(2500))) {
+  if (!(await waitForPrintAgentPing())) {
     const recovery = await recoverPrintAgent('pre-print-health-check')
     if (!recovery.ok) {
       return printFailureResponse(

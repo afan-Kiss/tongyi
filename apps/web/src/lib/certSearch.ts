@@ -1,7 +1,7 @@
 /** 与后端 cert-no.rules.ts 一致的编号联想匹配 */
 const CERT_PREFIXES = [
   'DA', 'DB', 'DC', 'DD', 'DE', 'DF', 'DG', 'DH', 'DI', 'DK', 'DL', 'DM', 'DN', 'DP', 'DQ', 'DR', 'DW',
-  'ZF', 'ZQ', 'ZX', 'F', 'D',
+  'ZF', 'ZQ', 'ZX', 'ZL', 'F', 'D',
 ] as const
 
 export function certMatchesSearchQuery(certNo: string, query: string): boolean {

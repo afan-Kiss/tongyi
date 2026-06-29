@@ -8,7 +8,8 @@
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
     "bridge": "node scripts/bridge-relay.js",
-    "start:all": "node scripts/supervisor.js"
+    "start:all": "node scripts/supervisor.js",
+    "test:order-match": "node server/services/orderSearchMatch.test.js"
   },
   "engines": {
     "node": ">=18"

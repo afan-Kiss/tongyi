@@ -5,6 +5,7 @@ const cookieParser = require('cookie-parser');
 const cors = require('cors');
 const { loadConfig, ROOT } = require('./config');
 const { createApiRouter } = require('./routes/api');
+const { scheduleOrderSearchCacheSync } = require('./services/orderSearchCacheService');
 
 const config = loadConfig();
 const app = express();
@@ -53,4 +54,5 @@ const host = process.env.HOST || config.server.host || '0.0.0.0';
 
 app.listen(port, host, () => {
   console.log(`[祥钰系统] http://${host}:${port}`);
+  scheduleOrderSearchCacheSync();
 });

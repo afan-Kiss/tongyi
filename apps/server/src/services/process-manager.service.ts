@@ -23,7 +23,11 @@ import {
   isXiangyuEnabled,
 } from '../config/env'
 
-import { ensurePrintAgentPortFree } from '../lib/kill-port'
+import {
+  ensurePrintAgentPortFree,
+  findListeningPids,
+  pingPrintAgentHealthSync,
+} from '../lib/kill-port'
 
 
 
@@ -414,9 +418,13 @@ export function startPrintAgentProcess(): void {
   printAgentRestartTimer = clearRestartTimer(printAgentRestartTimer)
 
   ensurePrintAgentVenv()
-  ensurePrintAgentPortFree()
 
   const port = getPrintAgentPort()
+  if (findListeningPids(port).length && pingPrintAgentHealthSync(port)) {
+    console.log('[process-manager] 打印 Agent 已在运行，跳过重复启动')
+    return
+  }
+  ensurePrintAgentPortFree()
 
   const py = printAgentPython()
 

@@ -15,6 +15,8 @@ export interface OperationLogPresented {
   priorPrice?: string | null
   priorSoldDate?: string | null
   remarkHint?: string | null
+  /** 关联小红书订单号（出库/退货入库时从快照解析） */
+  orderNo?: string | null
   bracelet?: {
     id: string
     certNo: string
@@ -133,6 +135,23 @@ type RawLog = {
   } | null
 }
 
+function parseOrderNoFromText(text: string): string | null {
+  const s = text.trim()
+  if (!s) return null
+  const m = s.match(/\b(P\d{10,})\b/i)
+  return m ? m[1].toUpperCase() : null
+}
+
+function extractOrderNo(snap: JsonRecord | null, result: JsonRecord | null, opType: string): string | null {
+  const fromResult = str(result?.orderNo)
+  const fromSnap = str(snap?.orderNo)
+  const fromRemark =
+    parseOrderNoFromText(str(snap?.remark)) || parseOrderNoFromText(str(result?.remark))
+  if (opType === 'outbound') return fromResult || fromSnap || fromRemark || null
+  if (opType === 'inbound') return fromSnap || fromResult || fromRemark || null
+  return fromResult || fromSnap || fromRemark || null
+}
+
 export function presentOperationLog(log: RawLog): OperationLogPresented {
   const snap = parseJson(log.snapshotJson)
   const result = parseJson(log.resultJson)
@@ -169,6 +188,8 @@ export function presentOperationLog(log: RawLog): OperationLogPresented {
 
   if (log.reverted) detail = `${detail}（已撤销）`
 
+  const orderNo = extractOrderNo(snap, result, log.opType)
+
   return {
     id: log.id,
     certNo: log.certNo,
@@ -184,6 +205,7 @@ export function presentOperationLog(log: RawLog): OperationLogPresented {
     priorPrice,
     priorSoldDate,
     remarkHint,
+    orderNo,
     bracelet: log.bracelet
       ? {
           id: log.bracelet.id,

@@ -42,14 +42,14 @@ DATA_START_ROW = 2
 
 CERT_PREFIXES = (
     "DA", "DB", "DC", "DD", "DE", "DF", "DG", "DH", "DI", "DK", "DL", "DM", "DN", "DP", "DQ", "DR", "DW",
-    "ZF", "ZQ", "F", "D",
+    "ZF", "ZQ", "ZX", "ZL", "F", "D",
 )
 
 
 def _default_digit_width(prefix: str) -> int:
     if prefix == "F":
         return 5
-    if prefix in ("ZQ", "ZF"):
+    if prefix in ("ZQ", "ZF", "ZX", "ZL"):
         return 4
     return 3
 
@@ -65,6 +65,9 @@ def _parse_cert_parts(cert_no: str) -> Optional[tuple[str, int, int]]:
         if not rest.isdigit():
             continue
         return prefix, int(rest), len(rest)
+    generic = re.match(r"^([A-Z]{1,3})(\d+)$", code)
+    if generic:
+        return generic.group(1), int(generic.group(2)), len(generic.group(2))
     return None
 
 

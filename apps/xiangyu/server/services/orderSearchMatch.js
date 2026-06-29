@@ -1,4 +1,4 @@
-/** 订单综合搜索：任意片段模糊匹配（订单号/物流/昵称/收寄件地址等） */
+/** 订单精确搜索：仅匹配订单号 / 发货物流 / 退货物流（全量相等，非模糊） */
 
 const ADDRESS_KEY_RE =
   /^(sender|send|shipper|consignor|from|receiver|receive|delivery|shipping|consignee|user|return)?_?(address|addr|detail|full|location|street|region|area|town|city|province|name|phone|mobile|tel|contact)$/i;
@@ -10,12 +10,8 @@ function str(v) {
   return String(v).trim();
 }
 
-function compactText(s) {
-  return str(s).replace(/\s+/g, '').toLowerCase();
-}
-
-function digitsOnly(s) {
-  return str(s).replace(/\D/g, '');
+function normalizeExactToken(v) {
+  return str(v).toUpperCase().replace(/\s+/g, '');
 }
 
 function walkCollect(obj, keyRe, out, depth = 0) {
@@ -44,22 +40,12 @@ function walkCollect(obj, keyRe, out, depth = 0) {
   }
 }
 
-function collectAllStrings(obj, out, depth = 0) {
-  if (depth > 10 || obj == null) return;
-  if (typeof obj === 'string') {
-    const v = str(obj);
-    if (v.length >= 1 && v.length <= 500) out.push(v);
-    return;
-  }
-  if (Array.isArray(obj)) {
-    for (const item of obj.slice(0, 80)) collectAllStrings(item, out, depth + 1);
-    return;
-  }
-  if (typeof obj !== 'object') return;
-  for (const val of Object.values(obj)) {
-    if (typeof val === 'string' || typeof val === 'object') collectAllStrings(val, out, depth + 1);
-  }
-}
+const {
+  pickBuyerReceiveAddress,
+  pickSellerShipFromAddress,
+  mergeOrderAddressFields,
+} = require('./addressDisplay');
+const { pickBestBuyerNick } = require('./buyerNickDisplay');
 
 function joinUnique(parts) {
   const seen = new Set();
@@ -73,55 +59,12 @@ function joinUnique(parts) {
   return out.join(' ');
 }
 
-function extractAddressByRole(pkg, roleRe) {
-  if (!pkg || typeof pkg !== 'object') return '';
-  const direct = [];
-  if (roleRe.test('receiver')) {
-    direct.push(
-      pkg.receiverAddress,
-      pkg.receiver_address,
-      pkg.receiveAddress,
-      pkg.consigneeAddress,
-      pkg.userReceiveAddress,
-      pkg.receiverInfo?.address,
-      pkg.receiver_info?.address,
-      pkg.receiverInfo?.fullAddress,
-      pkg.addressInfo?.address,
-      pkg.addressInfo?.fullAddress,
-      pkg.deliveryInfo?.address,
-      pkg.deliveryPackage?.address,
-      pkg.userInfo?.address,
-    );
-  }
-  if (roleRe.test('sender') || roleRe.test('send')) {
-    direct.push(
-      pkg.senderAddress,
-      pkg.sender_address,
-      pkg.sendAddress,
-      pkg.shipperAddress,
-      pkg.shipper_address,
-      pkg.consignorAddress,
-      pkg.fromAddress,
-      pkg.returnAddress,
-      pkg.return_address,
-      pkg.senderInfo?.address,
-      pkg.sender_info?.address,
-      pkg.shipperInfo?.address,
-      pkg.deliverySenderAddress,
-    );
-  }
-  direct.push(pkg.fullAddress, pkg.full_address, pkg.address, pkg.detailAddress);
-  const collected = [];
-  walkCollect(pkg, ADDRESS_KEY_RE, collected);
-  return joinUnique([...direct.map(str), ...collected]);
-}
-
 function extractReceiverAddress(pkg) {
-  return extractAddressByRole(pkg, /receiver|receive|consignee|user/i);
+  return pickBuyerReceiveAddress(pkg);
 }
 
 function extractSenderAddress(pkg) {
-  return extractAddressByRole(pkg, /sender|send|shipper|consignor|from|return/i);
+  return pickSellerShipFromAddress(pkg);
 }
 
 function extractReceiverPhone(pkg) {
@@ -158,12 +101,10 @@ function extractExpressNumbers(pkg) {
     pkg.logistics?.expressNo,
   ];
   const retDirect = [pkg.returnExpressNo, pkg.return_express_no, pkg.returnLogisticsNo, pkg.returnWaybillNo];
-  const collected = [];
-  walkCollect(pkg, EXPRESS_KEY_RE, collected);
-  const expressLike = collected.filter((v) => /^[A-Z0-9-]{4,40}$/i.test(v));
-  const ship = str(shipDirect.find((x) => str(x)) || expressLike[0] || '');
-  const ret = str(retDirect.find((x) => str(x)) || expressLike[1] || '');
-  return { ship: ship.toUpperCase(), ret: ret.toUpperCase() };
+  const ship = str(shipDirect.find((x) => str(x)) || '').toUpperCase();
+  let ret = str(retDirect.find((x) => str(x)) || '').toUpperCase();
+  if (ret && ship && ret === ship) ret = '';
+  return { ship, ret };
 }
 
 function extractShipExpressNo(pkg) {
@@ -174,91 +115,69 @@ function extractReturnExpressNo(pkg) {
   return extractExpressNumbers(pkg).ret;
 }
 
-function looksLikeAddressQuery(q) {
-  const s = str(q);
-  if (/[\u4e00-\u9fff]/.test(s)) return true;
-  return /(省|市|区|县|路|街|号|镇|乡|村|小区|大厦|楼|单元|室)/.test(s);
-}
-
 function looksLikePartialOrderQuery(q) {
-  const s = str(q);
-  return /^P?\d+$/i.test(s) || /^R?\d+$/i.test(s);
+  const s = str(q).toUpperCase();
+  return /^P\d{6,}$/.test(s) || /^R\d{4,}$/.test(s);
 }
 
 function looksLikeLogisticsQuery(q) {
   const s = str(q).toUpperCase();
-  if (s.length < 4) return false;
+  if (s.length < 8) return false;
   if (/^P\d{10,}$/.test(s)) return false;
-  return /^[A-Z0-9-]{4,40}$/.test(s);
+  return /^(SF|YT|YD|JD|EMS|ZTO|YTO|STO|HTKY|DBL|HHTT|UC|QFKD|ANE|ZJS|JT|FW|LB|DN)[A-Z0-9-]+$/.test(s)
+    || /^[A-Z0-9-]{10,24}$/.test(s);
 }
 
+/** 是否允许发起订单/物流查询（须为完整单号，不支持片段） */
+function isExactOrderSearchQuery(q) {
+  const s = str(q);
+  if (!s) return false;
+  if (looksLikePartialOrderQuery(s)) return true;
+  return looksLikeLogisticsQuery(s);
+}
+
+/** 千帆 API 关键词：仅原样查询，不做片段扩展 */
 function buildSearchCandidates(q) {
   const s = str(q);
-  const set = new Set();
   if (!s) return [];
-  set.add(s);
-  if (/^\d+$/.test(s)) {
-    set.add(`P${s}`);
-    if (s.length >= 4) set.add(s.slice(-8));
-    if (s.length >= 3) set.add(s.slice(-6));
-  }
-  if (/^P?\d+$/i.test(s)) {
-    const digits = digitsOnly(s);
-    if (digits.length >= 3) set.add(digits.slice(-8));
-  }
-  if (/^R?\d+$/i.test(s)) {
-    const digits = digitsOnly(s);
-    if (digits) set.add(`R${digits}`);
-  }
-  return [...set].filter(Boolean);
+  const upper = s.toUpperCase();
+  return s === upper ? [s] : [s, upper];
 }
 
-function orderSearchHaystack(order) {
-  const parts = [
-    order.orderNo,
-    order.orderId,
-    order.packageId,
-    order.returnsId,
-    order.buyerNick,
-    order.buyerName,
-    order.receiverName,
-    order.senderName,
-    order.receiverPhone,
-    order.receiverAddress,
-    order.senderAddress,
-    order.shipExpressNo,
-    order.returnExpressNo,
-    order.productTitle,
-    order.status,
-    order.statusDesc,
-    order.afterSaleStatusDesc,
-  ]
-    .map((x) => str(x))
-    .filter(Boolean);
+const EXACT_ORDER_SEARCH_FIELDS = [
+  'orderNo',
+  'packageId',
+  'returnsId',
+  'orderId',
+  'shipExpressNo',
+  'returnExpressNo',
+];
 
-  if (order.raw && typeof order.raw === 'object') {
-    collectAllStrings(order.raw, parts);
-  }
-  return [...new Set(parts)];
+function orderSearchFields(order) {
+  return {
+    orderNo: str(order.orderNo),
+    packageId: str(order.packageId),
+    returnsId: str(order.returnsId),
+    orderId: str(order.orderId),
+    shipExpressNo: str(order.shipExpressNo),
+    returnExpressNo: str(order.returnExpressNo),
+  };
+}
+
+function fieldEqualsQuery(fieldValue, query) {
+  const fv = normalizeExactToken(fieldValue);
+  const q = normalizeExactToken(query);
+  if (!fv || !q) return false;
+  return fv === q;
 }
 
 function orderMatchesQuery(order, query) {
   const q = str(query);
   if (!q) return false;
-
-  const qc = compactText(q);
-  const qu = q.toUpperCase();
-  const qDigits = digitsOnly(q);
-  const parts = orderSearchHaystack(order);
-
-  const hayCompact = parts.map(compactText).join('\x00');
-  const hayUpper = parts.join('\x00').toUpperCase();
-  const hayDigits = parts.map(digitsOnly).filter(Boolean).join('');
-
-  if (qc && hayCompact.includes(qc)) return true;
-  if (qu && hayUpper.includes(qu)) return true;
-  if (qDigits && hayDigits.includes(qDigits)) return true;
-
+  const fields = orderSearchFields(order);
+  for (const key of EXACT_ORDER_SEARCH_FIELDS) {
+    if (fieldEqualsQuery(fields[key], q)) return true;
+  }
   return false;
 }
 
@@ -268,27 +187,71 @@ function filterOrdersByQuery(orders, query) {
   return orders.filter((o) => orderMatchesQuery(o, q));
 }
 
-function needsBroadLocalScan(query, items) {
-  const q = str(query);
-  if (!q) return false;
-  if (items.length === 0) return true;
-  return q.length >= 1;
+function normalizeOrderExpressFields(order) {
+  const ship = str(order.shipExpressNo).toUpperCase();
+  let ret = str(order.returnExpressNo).toUpperCase();
+  if (ret && ship && ret === ship) ret = '';
+  return { ...order, shipExpressNo: ship, returnExpressNo: ret };
+}
+
+function canonicalOrderSearchKey(order) {
+  const shop = str(order.shopTitle || order.sourceAccountName);
+  const pkg = str(order.packageId || order.orderNo).toUpperCase();
+  return `${shop}::${pkg}`;
+}
+
+/** 同一 packageId 合并为一张卡片（订单页 + 售后页） */
+function mergeOrderSearchRecords(existing, incoming) {
+  const merged = {
+    ...existing,
+    ...incoming,
+    ...mergeOrderAddressFields({ ...existing, ...incoming }, existing),
+    returnsId: str(incoming.returnsId) || str(existing.returnsId),
+    afterSaleStatusDesc: str(incoming.afterSaleStatusDesc) || str(existing.afterSaleStatusDesc),
+    afterSaleStatus: str(incoming.afterSaleStatus) || str(existing.afterSaleStatus),
+    statusDesc: str(incoming.statusDesc) || str(existing.statusDesc),
+    status: str(incoming.status) || str(existing.status),
+    shipExpressNo: str(incoming.shipExpressNo) || str(existing.shipExpressNo),
+    returnExpressNo: str(incoming.returnExpressNo) || str(existing.returnExpressNo),
+    buyerNick: pickBestBuyerNick(incoming.buyerNick, existing.buyerNick),
+    productTitle: str(incoming.productTitle) || str(existing.productTitle),
+    orderPaid: Number(incoming.orderPaid || 0) || Number(existing.orderPaid || 0),
+    createdAt: Number(incoming.createdAt || 0) || Number(existing.createdAt || 0),
+    searchSource: [existing.searchSource, incoming.searchSource].filter(Boolean).join('+') || incoming.searchSource,
+  };
+  return normalizeOrderExpressFields(merged);
+}
+
+function dedupeSearchOrders(orders) {
+  const map = new Map();
+  for (const order of orders) {
+    const key = canonicalOrderSearchKey(order);
+    if (!key.endsWith('::')) {
+      const prev = map.get(key);
+      map.set(key, prev ? mergeOrderSearchRecords(prev, order) : normalizeOrderExpressFields(order));
+    }
+  }
+  return [...map.values()];
 }
 
 module.exports = {
-  compactText,
   extractReceiverAddress,
   extractSenderAddress,
   extractReceiverPhone,
   extractShipExpressNo,
   extractReturnExpressNo,
   extractExpressNumbers,
-  looksLikeAddressQuery,
   looksLikePartialOrderQuery,
   looksLikeLogisticsQuery,
+  isExactOrderSearchQuery,
   buildSearchCandidates,
-  orderSearchHaystack,
+  orderSearchFields,
+  fieldEqualsQuery,
   orderMatchesQuery,
   filterOrdersByQuery,
-  needsBroadLocalScan,
+  normalizeOrderExpressFields,
+  mergeOrderSearchRecords,
+  dedupeSearchOrders,
+  canonicalOrderSearchKey,
+  mergeOrderAddressFields,
 };

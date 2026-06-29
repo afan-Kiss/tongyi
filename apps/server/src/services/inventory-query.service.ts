@@ -4,6 +4,7 @@ import { braceletRepo, operationLogRepo } from '../repositories/bracelet.reposit
 import { prisma } from '../lib/prisma'
 import { presentOperationLogs } from '../utils/operation-log.presenter'
 import { presentBracelet } from '../utils/media-presenter'
+import { findCertIndexEntry } from './excel-cert-index.service'
 import { healBraceletAttachments } from './bracelet-meta-restore.service'
 
 function normalizeScanInput(raw: string): string {
@@ -226,6 +227,16 @@ export async function queryList(params: InventoryListFilter & {
   return { items: items.map(presentBracelet), total, page, pageSize }
 }
 
+function enrichLogsWithOrderNo<T extends { certNo: string; orderNo?: string | null }>(logs: T[]): T[] {
+  return logs.map((log) => {
+    if ((log.orderNo || '').trim()) return log
+    const excel = findCertIndexEntry(log.certNo)
+    const fromExcel = excel?.orderNo?.trim()
+    if (!fromExcel) return log
+    return { ...log, orderNo: fromExcel }
+  })
+}
+
 export async function queryDashboard() {
   const today = todayStr()
   const [y, m, day] = today.split('-').map(Number)
@@ -245,8 +256,8 @@ export async function queryDashboard() {
     outOfStock,
     todayOutbound,
     todayInbound,
-    recentLogs: presentOperationLogs(recentRaw),
-    todayOutboundLogs: presentOperationLogs(todayOutboundRaw),
-    todayInboundLogs: presentOperationLogs(todayInboundRaw),
+    recentLogs: enrichLogsWithOrderNo(presentOperationLogs(recentRaw)),
+    todayOutboundLogs: enrichLogsWithOrderNo(presentOperationLogs(todayOutboundRaw)),
+    todayInboundLogs: enrichLogsWithOrderNo(presentOperationLogs(todayInboundRaw)),
   }
 }

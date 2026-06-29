@@ -1,7 +1,7 @@
 /** 编号解析与生成（与 CERT_NO_REGEX 前缀一致，长前缀优先匹配） */
 export const CERT_PREFIXES = [
   'DA', 'DB', 'DC', 'DD', 'DE', 'DF', 'DG', 'DH', 'DI', 'DK', 'DL', 'DM', 'DN', 'DP', 'DQ', 'DR', 'DW',
-  'ZF', 'ZQ', 'ZX', 'F', 'D',
+  'ZF', 'ZQ', 'ZX', 'ZL', 'F', 'D',
 ] as const
 
 /** 从编号提取字母前缀（已知前缀优先，否则按 字母+数字 规则，如 ZX123 → ZX） */
@@ -24,12 +24,16 @@ export function parseCertNoParts(certNo: string): { prefix: string; num: number;
     if (Number.isNaN(num)) continue
     return { prefix, num, width: rest.length }
   }
+  const generic = code.match(/^([A-Z]{1,3})(\d+)$/)
+  if (generic) {
+    return { prefix: generic[1], num: parseInt(generic[2], 10), width: generic[2].length }
+  }
   return null
 }
 
 export function defaultDigitWidth(prefix: string): number {
   if (prefix === 'F') return 5
-  if (prefix === 'ZQ' || prefix === 'ZF' || prefix === 'ZX') return 4
+  if (prefix === 'ZQ' || prefix === 'ZF' || prefix === 'ZX' || prefix === 'ZL') return 4
   return 3
 }
 

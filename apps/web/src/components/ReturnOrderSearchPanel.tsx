@@ -3,14 +3,26 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { Copy, ExternalLink, Search } from 'lucide-react'
 
 import { formatOrderTime, fmtYuan } from '@/lib/xhsOrderMatch'
-import { notifyAuthCheck } from '@/api/client'
-import { searchXhsOrders, type XhsOrderRow } from '@/lib/xhsOrdersApi'
+import { openXhsArkDetail, searchXhsOrders, type XhsOrderRow } from '@/lib/xhsOrdersApi'
 
 function isReturnRelated(order: XhsOrderRow): boolean {
   const text = [order.afterSaleStatusDesc, order.afterSaleStatus, order.status, order.statusDesc, order.returnsId]
     .filter(Boolean)
     .join(' ')
   return /退|售后|退款|换货|拒收|待收货/.test(text)
+}
+
+/** 卖家退货仓（买家寄回地址），界面不展示 */
+function isReturnWarehouseAddress(addr?: string): boolean {
+  const a = (addr || '').trim()
+  if (!a) return false
+  return /中贸广场|碑林区长安路|长安路街道中贸/.test(a)
+}
+
+function displayAddress(addr?: string): string | undefined {
+  const a = (addr || '').trim()
+  if (!a || isReturnWarehouseAddress(a)) return undefined
+  return a
 }
 
 export interface ReturnOrderSearchPanelProps {
@@ -31,7 +43,7 @@ export const ReturnOrderSearchPanel: React.FC<ReturnOrderSearchPanelProps> = ({
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(false)
   const [status, setStatus] = useState(
-    embedded ? '' : '支持订单号、物流、收/寄件地址、买家昵称等任意片段模糊搜索（近 30 天）',
+    embedded ? '' : '精确查询：完整订单号（P）、售后单号（R）、发货/退货物流单号（近 30 天）',
   )
   const [error, setError] = useState('')
   const [items, setItems] = useState<XhsOrderRow[]>([])
@@ -56,8 +68,16 @@ export const ReturnOrderSearchPanel: React.FC<ReturnOrderSearchPanelProps> = ({
         const data = await searchXhsOrders(q, 30)
         setItems(data.items)
         setShopSummary(data.shopSummary || [])
-        setStatus(data.message || `共 ${data.items.length} 条`)
-        if (data.warnings?.length) setError(data.warnings.join('；'))
+        const sourceHint =
+          data.source === 'cache'
+            ? ' · 本地缓存'
+            : data.source === 'live'
+              ? ' · 实时查询'
+              : ''
+        setStatus((data.message || `共 ${data.items.length} 条`) + sourceHint)
+        const warnParts = [...(data.warnings || [])]
+        if (data.cacheStale) warnParts.push('本地缓存已超过 180 分钟')
+        if (warnParts.length) setError(warnParts.join('；'))
       } catch (e) {
         setItems([])
         setShopSummary([])
@@ -90,42 +110,17 @@ export const ReturnOrderSearchPanel: React.FC<ReturnOrderSearchPanelProps> = ({
     const pkg = (order.packageId || order.orderNo || '').trim()
     if (!returnId && !pkg) return
     const key = returnId || pkg
-    const params = new URLSearchParams()
-    params.set('shop', order.shopTitle || order.sourceAccountName || '')
-    params.set('format', 'json')
-    if (returnId) params.set('returnId', returnId)
-    else if (pkg) params.set('packageId', pkg)
+    const searchedByReturnId = /^R/i.test((embedded ? externalQuery : query).trim())
     setArkOpeningKey(key)
     setError('')
     try {
-      const res = await fetch(`/xiangyu-proxy/api/orders/ark-detail?${params.toString()}`, {
-        credentials: 'include',
-        headers: { Accept: 'application/json' },
+      await openXhsArkDetail({
+        orderNo: order.orderNo,
+        returnId: searchedByReturnId ? returnId : undefined,
+        packageId: pkg,
+        shopTitle: order.shopTitle || order.sourceAccountName || '',
+        openTarget: searchedByReturnId ? 'aftersale' : 'order',
       })
-      const data = (await res.json().catch(() => ({}))) as {
-        ok?: boolean
-        url?: string
-        error?: string
-        message?: string
-        code?: string
-      }
-      if (res.status === 401) {
-        notifyAuthCheck()
-        throw new Error(String(data.message || '请先登录'))
-      }
-      if (res.status === 403 && data?.code === 'LICENSE_DISABLED') {
-        window.dispatchEvent(
-          new CustomEvent('license:blocked', { detail: { allowed: false, message: data.message || '软件不可用' } }),
-        )
-        throw new Error(String(data.message || '软件不可用'))
-      }
-      if (!res.ok || !data.url) {
-        throw new Error(String(data.error || data.message || `打开失败 (${res.status})`))
-      }
-      if (!data.ok) {
-        throw new Error(String(data.error || '未能自动切换店铺，请确认该店千帆工作台已打开'))
-      }
-      window.open(data.url, '_blank', 'noopener,noreferrer')
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -141,12 +136,12 @@ export const ReturnOrderSearchPanel: React.FC<ReturnOrderSearchPanelProps> = ({
       {!embedded && (
         <>
           <p className="text-sm text-slate-600">
-            综合搜索：订单号（不用完整 P 号）、发货/退货物流、收/寄件地址、买家昵称，输入任意片段均可匹配
+            精确查询：完整订单号（P 开头）、售后单号（R 开头）、发货/退货物流单号
           </p>
           <div className="mt-3 flex gap-2">
             <input
               className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-violet-300"
-              placeholder="任意片段：订单号 / 物流 / 地址 / 昵称…"
+              placeholder="P7979… / R6721… / SF5117802909776"
               value={query}
               disabled={loading}
               onChange={(e) => setQuery(e.target.value)}
@@ -197,9 +192,17 @@ export const ReturnOrderSearchPanel: React.FC<ReturnOrderSearchPanelProps> = ({
         )}
         {items.map((o) => {
           const ret = isReturnRelated(o)
+          const recvAddr = displayAddress(o.receiverAddress)
+          const sendAddr = displayAddress(o.senderAddress)
+          const shipNo = o.shipExpressNo?.trim()
+          const returnNo =
+            o.returnExpressNo?.trim() &&
+            o.returnExpressNo.trim().toUpperCase() !== (shipNo || '').toUpperCase()
+              ? o.returnExpressNo.trim()
+              : undefined
           return (
             <div
-              key={`${o.shopTitle}::${o.orderNo}::${o.returnsId || ''}`}
+              key={`${o.shopTitle}::${o.orderNo}`}
               className={`rounded-xl border px-3 py-2.5 text-[11px] leading-relaxed ${
                 ret ? 'border-amber-200 bg-amber-50/80' : 'border-slate-100 bg-white'
               }`}
@@ -237,10 +240,9 @@ export const ReturnOrderSearchPanel: React.FC<ReturnOrderSearchPanelProps> = ({
               <p>
                 实付：¥{fmtYuan(o.orderPaid)} · {formatOrderTime(o.createdAt) || '—'}
               </p>
-              {o.receiverAddress && <p>收货地址：{o.receiverAddress}</p>}
-              {o.senderAddress && <p>寄件地址：{o.senderAddress}</p>}
-              {o.returnExpressNo && <p>退货物流：{o.returnExpressNo}</p>}
-              {o.shipExpressNo && <p>发货物流：{o.shipExpressNo}</p>}
+              {recvAddr && <p>收货地址：{recvAddr}</p>}
+              {shipNo && <p>发货物流：{shipNo}</p>}
+              {returnNo && <p>退货物流：{returnNo}</p>}
               <p>
                 状态：{o.statusDesc || o.status || '—'}
                 {o.afterSaleStatusDesc ? ` · 售后：${o.afterSaleStatusDesc}` : ''}

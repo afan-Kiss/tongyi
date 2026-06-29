@@ -112,7 +112,8 @@ function createApiRouter() {
       });
     }
     clearOrdersCache();
-    clearOutboundAccountCache();
+    const { clearOrderSearchCacheOnAccountChange } = require('../services/orderSearchCacheService');
+    clearOrderSearchCacheOnAccountChange();
     res.json({
       ok: true,
       message: `已从辅助出库软件读取 ${imported.length} 个店铺`,
@@ -131,7 +132,8 @@ function createApiRouter() {
 
     const next = updateSettings(config, patch, newPassword || '');
     clearOrdersCache();
-    clearOutboundAccountCache();
+    const { clearOrderSearchCacheOnAccountChange } = require('../services/orderSearchCacheService');
+    clearOrderSearchCacheOnAccountChange();
     res.json({ ok: true, public: getPublicConfig(next) });
   });
 
@@ -166,6 +168,35 @@ function createApiRouter() {
       res.json(data);
     } catch (err) {
       res.status(400).json({ error: err.message || '查询失败' });
+    }
+  });
+
+  router.get('/orders/search-cache/status', async (_req, res) => {
+    try {
+      const { getCacheStatus } = require('../services/orderSearchCacheService');
+      res.json({ ok: true, ...getCacheStatus() });
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err.message || '读取缓存状态失败' });
+    }
+  });
+
+  router.post('/orders/search-cache/refresh', async (_req, res) => {
+    try {
+      const { syncOrderSearchCache } = require('../services/orderSearchCacheService');
+      const result = await syncOrderSearchCache({ force: true });
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err.message || '刷新缓存失败' });
+    }
+  });
+
+  router.get('/accounts/cookie-health', async (_req, res) => {
+    try {
+      const { getCookieHealth } = require('../services/xhsCookieHealthService');
+      const data = await getCookieHealth({ force: String(_req.query.force || '') === '1' });
+      res.json({ ok: true, ...data });
+    } catch (err) {
+      res.status(500).json({ ok: false, error: err.message || 'Cookie 探测失败' });
     }
   });
 

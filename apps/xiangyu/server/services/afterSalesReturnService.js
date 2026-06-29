@@ -9,7 +9,13 @@ const {
   XhsSignError,
 } = require('./xhsSigner');
 const { buildArkOrderDetailUrl, normalizePackageId, buildDetailServiceUrl, buildAftersaleDetailServiceUrl } = require('./arkSsoTicketService');
-const { extractReceiverAddress, extractSenderAddress, extractShipExpressNo, extractReturnExpressNo } = require('./orderSearchMatch');
+const { pickBestBuyerNick } = require('./buyerNickDisplay');
+const { pickBuyerReceiveAddress, pickSellerShipFromAddress } = require('./addressDisplay');
+const {
+  normalizeOrderExpressFields,
+  extractReturnExpressNo,
+  extractShipExpressNo,
+} = require('./orderSearchMatch');
 
 const AFTER_SALES_RETURNS_URL = 'https://ark.xiaohongshu.com/api/edith/after-sales/returns/v3';
 const AFTER_SALE_REFERER = 'https://ark.xiaohongshu.com/app-order/aftersale/list';
@@ -17,13 +23,11 @@ const DEFAULT_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 const FETCH_TIMEOUT_MS = 12000;
 
+const { looksLikeLogisticsQuery } = require('./orderSearchMatch');
+
 /** 物流单号 / 快递单号 */
 function isLogisticsQuery(q) {
-  const s = String(q || '').trim().toUpperCase();
-  if (s.length < 8) return false;
-  if (/^P\d{10,}$/.test(s)) return false;
-  return /^(SF|YT|YD|JD|EMS|ZTO|YTO|STO|HTKY|DBL|HHTT|UC|QFKD|ANE|ZJS|JT|FW|LB|DN)/.test(s)
-    || /^[A-Z0-9]{10,24}$/.test(s);
+  return looksLikeLogisticsQuery(q);
 }
 
 function str(v) {
@@ -39,19 +43,24 @@ function resolvePackageId(item) {
   return '';
 }
 
-function buildAfterSalesSignParams(keywords, page = 1) {
+/** 售后工作台全状态（缓存同步用，含已完成/已关闭退货） */
+const AFTER_SALES_BROAD_STATUS = '1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16';
+
+function buildAfterSalesSignParams(keywords, page = 1, options = {}) {
+  const broad = Boolean(options.broad);
   return {
     page,
     number: 20,
     keywords: String(keywords || '').trim(),
     'goods_source[]': [1, 2],
     sort: 'deadline_for_sort_v1',
-    order: 'asc',
-    status_in: '1,3,12',
+    order: broad ? 'desc' : 'asc',
+    status_in: broad ? AFTER_SALES_BROAD_STATUS : '1,3,12',
   };
 }
 
-function buildAfterSalesRequestUrl(keywords, page = 1) {
+function buildAfterSalesRequestUrl(keywords, page = 1, options = {}) {
+  const broad = Boolean(options.broad);
   const kw = encodeURIComponent(String(keywords || '').trim());
   const parts = [
     `page=${page}`,
@@ -59,9 +68,9 @@ function buildAfterSalesRequestUrl(keywords, page = 1) {
     `keywords=${kw}`,
     'goods_source[]=1',
     'goods_source[]=2',
-    'sort=deadline_for_sort_v1',
-    'order=asc',
-    'status_in=1,3,12',
+    `sort=deadline_for_sort_v1`,
+    `order=${broad ? 'desc' : 'asc'}`,
+    `status_in=${broad ? AFTER_SALES_BROAD_STATUS : '1,3,12'}`,
   ];
   return `${AFTER_SALES_RETURNS_URL}?${parts.join('&')}`;
 }
@@ -93,12 +102,19 @@ function normalizeAfterSaleRow(item, shopTitle, cookie) {
   const productTitle = str(sku.name_without_v || sku.sku_name || sku.name);
   const ts = Number(item.time || item.deadline_for_sort || 0);
 
-  return {
+  return normalizeOrderExpressFields({
     orderId: str(item.order_id) || packageId,
     orderNo: packageId || str(item.returns_id),
     packageId,
     returnsId: str(item.returns_id),
-    buyerNick: str(item.nick_name) || '买家',
+    buyerNick: pickBestBuyerNick(
+      item.nick_name,
+      item.nickname,
+      item.nickName,
+      item.user_nick,
+      item.buyer_nick,
+      item.buyerNick,
+    ),
     shopTitle,
     sourceAccountName: shopTitle,
     amount: payAmount ? `¥${payAmount}` : '',
@@ -113,22 +129,23 @@ function normalizeAfterSaleRow(item, shopTitle, cookie) {
     afterSaleStatusDesc: [item.return_type_name, item.sub_status_name].filter(Boolean).join(' · '),
     returnExpressNo: str(item.return_express_no) || extractReturnExpressNo(item),
     shipExpressNo: str(item.ship_express_no) || extractShipExpressNo(item),
-    receiverAddress: extractReceiverAddress(item),
-    senderAddress: extractSenderAddress(item),
+    receiverAddress: pickBuyerReceiveAddress(item),
+    senderAddress: pickSellerShipFromAddress(item),
     receiverPhone: str(item.phone || item.receiver_phone || item.mobile),
     productTitle,
+    raw: item,
     arkDetailUrl: str(item.returns_id)
       ? buildAftersaleDetailServiceUrl(item.returns_id)
       : packageId
         ? buildDetailServiceUrl(packageId)
         : '',
     searchSource: 'after_sales',
-  };
+  });
 }
 
-async function requestAfterSalesPage(account, keywords, page = 1) {
-  const queryParams = buildAfterSalesSignParams(keywords, page);
-  const url = buildAfterSalesRequestUrl(keywords, page);
+async function requestAfterSalesPage(account, keywords, page = 1, options = {}) {
+  const queryParams = buildAfterSalesSignParams(keywords, page, options);
+  const url = buildAfterSalesRequestUrl(keywords, page, options);
   const headers = buildAfterSalesHeaders(queryParams, account.cookie);
 
   const res = await fetch(url, {
@@ -172,19 +189,24 @@ async function requestAfterSalesPage(account, keywords, page = 1) {
   return { rows, hasMore, total };
 }
 
-async function searchAfterSalesForAccount(account, keywords, maxPages = 2) {
+async function searchAfterSalesForAccount(account, keywords, maxPages = 2, options = {}) {
   const all = [];
   for (let page = 1; page <= maxPages; page += 1) {
-    const { rows, hasMore } = await requestAfterSalesPage(account, keywords, page);
+    const { rows, hasMore } = await requestAfterSalesPage(account, keywords, page, options);
     all.push(...rows);
     if (!hasMore || !rows.length) break;
   }
   return all.map((item) => normalizeAfterSaleRow(item, account.name, account.cookie));
 }
 
+/** 缓存同步：拉取售后工作台近期全量（空关键词 + 宽状态） */
+async function fetchAfterSalesBroadForAccount(account, maxPages = 40) {
+  return searchAfterSalesForAccount(account, '', maxPages, { broad: true });
+}
+
 async function searchAfterSalesByKeywords(query, options = {}) {
   const q = String(query || '').trim();
-  if (!q) throw new Error('请输入物流单号、订单号片段、收货地址或买家信息');
+  if (!q) throw new Error('请输入完整物流单号或订单号');
 
   const config = loadConfig();
   const accounts = listEnabledAccounts(config);
@@ -229,7 +251,7 @@ async function searchAfterSalesByKeywords(query, options = {}) {
 
   let message = items.length
     ? `四店售后列表共 ${items.length} 条匹配`
-    : '未找到匹配售后/退货单，可核对物流单号或换店铺 Cookie';
+    : '未找到匹配售后/退货单，请核对完整物流单号或订单号';
   if (errors.length && items.length) {
     message = `${message}（${errors.length} 个店铺查询失败）`;
   }
@@ -253,5 +275,6 @@ module.exports = {
   isLogisticsQuery,
   buildArkOrderDetailUrl,
   searchAfterSalesByKeywords,
+  fetchAfterSalesBroadForAccount,
   AFTER_SALES_RETURNS_URL,
 };
