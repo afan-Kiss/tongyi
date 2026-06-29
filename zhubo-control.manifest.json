@@ -1,0 +1,41 @@
+{
+  "manifestVersion": 1,
+  "name": "扫码枪登记出入库系统",
+  "code": "jade-scan",
+  "category": "扫码/出入库",
+  "gitRemote": "https://github.com/afan-Kiss/saomaqiang.git",
+  "localPath": "E:\\我的软件源码\\扫码枪登记出入库系统",
+  "desktopStartCommand": "npm run dev",
+  "localWebUrl": "http://127.0.0.1:5173",
+  "localHealthUrl": "http://127.0.0.1:4725/api/health",
+  "healthType": "http",
+  "ports": [
+    4725,
+    5173,
+    4726,
+    4727,
+    4728,
+    4729,
+    7789
+  ],
+  "services": [
+    {
+      "name": "server",
+      "command": "npm run dev:server",
+      "port": 4725,
+      "healthUrl": "http://127.0.0.1:4725/api/health"
+    },
+    {
+      "name": "web",
+      "command": "npm run dev:web",
+      "port": 5173,
+      "webUrl": "http://127.0.0.1:5173"
+    }
+  ],
+  "control": {
+    "enabled": true,
+    "showInDesktop": true,
+    "cookieMode": "pending",
+    "notes": "多服务 monorepo，含祥钰子应用"
+  }
+}
