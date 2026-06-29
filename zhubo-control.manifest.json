@@ -37,5 +37,6 @@
     "showInDesktop": true,
     "cookieMode": "pending",
     "notes": "多服务 monorepo，含祥钰子应用"
-  }
+  },
+  "riskLevel": "medium"
 }
