@@ -67,6 +67,7 @@ export interface OperationLog {
   priorSoldDate?: string | null
   remarkHint?: string | null
   orderNo?: string | null
+  shopTitle?: string | null
   bracelet?: Pick<Bracelet, 'id' | 'certNo' | 'category' | 'batch' | 'ringSize' | 'cost'> | null
 }
 

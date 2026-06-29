@@ -199,8 +199,31 @@ function isReturnIdToken(v: string): boolean {
   return /^R\d/i.test(v.trim())
 }
 
-function isPackageIdToken(v: string): boolean {
-  return /^P\d/i.test(v.trim())
+function normalizeSearchToken(v: string): string {
+  return v.trim().toUpperCase().replace(/\s+/g, '')
+}
+
+function rowMatchesTokens(row: XhsOrderRow, tokens: string[]): boolean {
+  const fields = [row.orderNo, row.packageId, row.returnsId, row.orderId].map((f) =>
+    normalizeSearchToken(String(f || '')),
+  )
+  return tokens.some((t) => {
+    const q = normalizeSearchToken(t)
+    return q && fields.some((f) => f === q)
+  })
+}
+
+function pickBestSearchHit(
+  items: XhsOrderRow[],
+  opts: { orderNo?: string; returnId?: string; packageId?: string },
+): XhsOrderRow | undefined {
+  if (!items.length) return undefined
+  const tokens = [opts.returnId, opts.packageId, opts.orderNo].filter(Boolean) as string[]
+  if (tokens.length) {
+    const exact = items.find((row) => rowMatchesTokens(row, tokens))
+    if (exact) return exact
+  }
+  return items[0]
 }
 
 /** 换取 SSO ticket 后在新标签页打开千帆售后/订单详情 */
@@ -220,25 +243,27 @@ export async function openXhsArkDetail(input: OpenXhsArkDetailInput): Promise<vo
     throw new Error('缺少订单号或售后单号')
   }
 
-  const wantAftersale =
-    openTarget === 'aftersale' || (openTarget === 'auto' && isReturnIdToken(returnId) && !pkg)
-  const wantOrder =
-    openTarget === 'order' || (openTarget === 'auto' && !!pkg && !isReturnIdToken(returnId))
+  const wantAftersale = openTarget === 'aftersale'
+  const wantOrder = openTarget === 'order'
 
-  if (!shop || (wantOrder && !pkg)) {
+  if (!shop || (wantOrder && !pkg) || (wantAftersale && !returnId && !shop)) {
     const q = wantAftersale && returnId ? returnId : pkg || returnId || orderNo
     const data = await searchXhsOrders(q, 30)
-    const hit = data.items[0]
+    const hit = pickBestSearchHit(data.items, { orderNo, returnId, packageId: pkg })
     if (!hit) throw new Error(`未找到订单 ${q}，请确认本地缓存已同步`)
-    shop = hit.shopTitle || hit.sourceAccountName || ''
+    if (!shop) shop = hit.shopTitle || hit.sourceAccountName || ''
     if (wantAftersale && !returnId && hit.returnsId) returnId = hit.returnsId.trim()
-    if (!pkg) pkg = (hit.packageId || hit.orderNo || '').trim()
+    if (wantOrder && !pkg) pkg = (hit.packageId || hit.orderNo || '').trim()
   }
 
   const params = new URLSearchParams()
   params.set('shop', shop)
   params.set('format', 'json')
   if (wantAftersale && returnId) {
+    params.set('returnId', returnId)
+  } else if (wantOrder && pkg) {
+    params.set('packageId', pkg)
+  } else if (openTarget === 'auto' && returnId && isReturnIdToken(returnId)) {
     params.set('returnId', returnId)
   } else if (pkg) {
     params.set('packageId', pkg)

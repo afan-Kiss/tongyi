@@ -17,6 +17,8 @@ export interface OperationLogPresented {
   remarkHint?: string | null
   /** 关联小红书订单号（出库/退货入库时从快照解析） */
   orderNo?: string | null
+  /** 订单所属店铺（由订单缓存补全） */
+  shopTitle?: string | null
   bracelet?: {
     id: string
     certNo: string

@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma'
 import { presentOperationLogs } from '../utils/operation-log.presenter'
 import { presentBracelet } from '../utils/media-presenter'
 import { findCertIndexEntry } from './excel-cert-index.service'
+import { lookupOrderInSearchCache } from './order-cache-lookup.service'
 import { healBraceletAttachments } from './bracelet-meta-restore.service'
 
 function normalizeScanInput(raw: string): string {
@@ -227,13 +228,27 @@ export async function queryList(params: InventoryListFilter & {
   return { items: items.map(presentBracelet), total, page, pageSize }
 }
 
-function enrichLogsWithOrderNo<T extends { certNo: string; orderNo?: string | null }>(logs: T[]): T[] {
+function enrichOperationLogs<
+  T extends { certNo: string; orderNo?: string | null; shopTitle?: string | null },
+>(logs: T[]): T[] {
   return logs.map((log) => {
-    if ((log.orderNo || '').trim()) return log
-    const excel = findCertIndexEntry(log.certNo)
-    const fromExcel = excel?.orderNo?.trim()
-    if (!fromExcel) return log
-    return { ...log, orderNo: fromExcel }
+    let orderNo = (log.orderNo || '').trim()
+    if (!orderNo) {
+      const excel = findCertIndexEntry(log.certNo)
+      orderNo = excel?.orderNo?.trim() || ''
+    }
+    let shopTitle = (log.shopTitle || '').trim()
+    if (orderNo && !shopTitle) {
+      const hit = lookupOrderInSearchCache(orderNo)
+      if (hit?.shopTitle) shopTitle = hit.shopTitle
+      if (hit?.orderNo && !orderNo) orderNo = hit.orderNo
+    }
+    if (!orderNo && !shopTitle) return log
+    return {
+      ...log,
+      ...(orderNo ? { orderNo } : {}),
+      ...(shopTitle ? { shopTitle } : {}),
+    }
   })
 }
 
@@ -256,8 +271,8 @@ export async function queryDashboard() {
     outOfStock,
     todayOutbound,
     todayInbound,
-    recentLogs: enrichLogsWithOrderNo(presentOperationLogs(recentRaw)),
-    todayOutboundLogs: enrichLogsWithOrderNo(presentOperationLogs(todayOutboundRaw)),
-    todayInboundLogs: enrichLogsWithOrderNo(presentOperationLogs(todayInboundRaw)),
+    recentLogs: enrichOperationLogs(presentOperationLogs(recentRaw)),
+    todayOutboundLogs: enrichOperationLogs(presentOperationLogs(todayOutboundRaw)),
+    todayInboundLogs: enrichOperationLogs(presentOperationLogs(todayInboundRaw)),
   }
 }

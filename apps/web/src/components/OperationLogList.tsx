@@ -31,9 +31,7 @@ function metaLine(log: OperationLog): string {
 }
 
 function canOpenArk(log: OperationLog): boolean {
-  const orderNo = (log.orderNo || '').trim()
-  if (orderNo) return true
-  return log.opType === 'inbound' || log.opType === 'outbound'
+  return Boolean((log.orderNo || '').trim())
 }
 
 type Props = {
@@ -60,12 +58,14 @@ export const OperationLogList: React.FC<Props> = ({
 
   const openArk = async (log: OperationLog) => {
     const orderNo = (log.orderNo || '').trim()
+    if (!orderNo) return
     setArkOpeningId(log.id)
     try {
-      if (!orderNo) {
-        throw new Error(`${log.certNo} 暂无关联订单号，请先在出库时填写或在 Excel 订单号列维护`)
-      }
-      await openXhsArkDetail({ orderNo, openTarget: 'order' })
+      await openXhsArkDetail({
+        orderNo,
+        shopTitle: log.shopTitle || undefined,
+        openTarget: 'order',
+      })
     } catch (e) {
       onArkError?.(e instanceof Error ? e.message : String(e))
     } finally {

@@ -17,6 +17,24 @@ function mergeTodayLogs(stats: DashboardStats | null): OperationLog[] {
   )
 }
 
+const DISPLAY_LIMIT = 20
+
+/** 今日记录优先，再用 recentLogs 补齐到 limit 条，按 id 去重、createdAt 倒序 */
+function buildDisplayLogs(stats: DashboardStats | null, limit = DISPLAY_LIMIT): OperationLog[] {
+  if (!stats) return []
+  const map = new Map<string, OperationLog>()
+  for (const log of mergeTodayLogs(stats)) {
+    map.set(log.id, log)
+  }
+  for (const log of stats.recentLogs || []) {
+    if (map.size >= limit) break
+    if (!map.has(log.id)) map.set(log.id, log)
+  }
+  return [...map.values()]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, limit)
+}
+
 type Props = {
   onOpenCert: (certNo: string) => void
 }
@@ -41,8 +59,7 @@ export const ScanRecentOperationsPanel: React.FC<Props> = ({ onOpenCert }) => {
 
   useEffect(() => onInventoryRefresh(load), [load])
 
-  const todayLogs = useMemo(() => mergeTodayLogs(stats), [stats])
-  const displayLogs = todayLogs.length > 0 ? todayLogs : (stats?.recentLogs || []).slice(0, 20)
+  const displayLogs = useMemo(() => buildDisplayLogs(stats), [stats])
   const todayTotal = (stats?.todayOutbound ?? 0) + (stats?.todayInbound ?? 0)
 
   return (

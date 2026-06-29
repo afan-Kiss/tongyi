@@ -105,21 +105,37 @@ export const ReturnOrderSearchPanel: React.FC<ReturnOrderSearchPanelProps> = ({
     }
   }
 
-  const openArkDetail = async (order: XhsOrderRow) => {
-    const returnId = (order.returnsId || '').trim()
+  const openArkOrder = async (order: XhsOrderRow) => {
     const pkg = (order.packageId || order.orderNo || '').trim()
-    if (!returnId && !pkg) return
-    const key = returnId || pkg
-    const searchedByReturnId = /^R/i.test((embedded ? externalQuery : query).trim())
+    if (!pkg) return
+    const key = `${pkg}::order`
     setArkOpeningKey(key)
     setError('')
     try {
       await openXhsArkDetail({
         orderNo: order.orderNo,
-        returnId: searchedByReturnId ? returnId : undefined,
         packageId: pkg,
         shopTitle: order.shopTitle || order.sourceAccountName || '',
-        openTarget: searchedByReturnId ? 'aftersale' : 'order',
+        openTarget: 'order',
+      })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setArkOpeningKey('')
+    }
+  }
+
+  const openArkAftersale = async (order: XhsOrderRow) => {
+    const returnId = (order.returnsId || '').trim()
+    if (!returnId) return
+    const key = `${returnId}::aftersale`
+    setArkOpeningKey(key)
+    setError('')
+    try {
+      await openXhsArkDetail({
+        returnId,
+        shopTitle: order.shopTitle || order.sourceAccountName || '',
+        openTarget: 'aftersale',
       })
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -212,16 +228,29 @@ export const ReturnOrderSearchPanel: React.FC<ReturnOrderSearchPanelProps> = ({
                   <p className="font-semibold text-slate-900">{o.orderNo}</p>
                   {o.returnsId && <p className="text-[10px] text-slate-400">售后单：{o.returnsId}</p>}
                 </div>
-                <div className="flex shrink-0 gap-1">
-                  {(o.returnsId || o.packageId || o.orderNo) && (
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  {(o.packageId || o.orderNo) && (
                     <button
                       type="button"
                       disabled={!!arkOpeningKey}
-                      onClick={() => void openArkDetail(o)}
+                      onClick={() => void openArkOrder(o)}
                       className="inline-flex items-center gap-1 rounded-lg border border-violet-200 bg-violet-50 px-2 py-1 text-[10px] text-violet-800 hover:bg-violet-100 disabled:opacity-60"
                     >
                       <ExternalLink size={12} />
-                      {arkOpeningKey === (o.returnsId || o.packageId || o.orderNo || '') ? '换票跳转…' : '千帆详情'}
+                      {arkOpeningKey === `${(o.packageId || o.orderNo || '').trim()}::order`
+                        ? '跳转…'
+                        : '千帆订单'}
+                    </button>
+                  )}
+                  {o.returnsId && (
+                    <button
+                      type="button"
+                      disabled={!!arkOpeningKey}
+                      onClick={() => void openArkAftersale(o)}
+                      className="inline-flex items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] text-amber-900 hover:bg-amber-100 disabled:opacity-60"
+                    >
+                      <ExternalLink size={12} />
+                      {arkOpeningKey === `${o.returnsId.trim()}::aftersale` ? '跳转…' : '千帆售后'}
                     </button>
                   )}
                   <button
