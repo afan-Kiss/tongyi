@@ -26,8 +26,10 @@ const {
 const { triggerNativeSyncAfterSend, installNativeSyncBridge, parseSenderAppUid, buildSellerExtension } = require('./qianfan-native-sync');
 
 const PORT = Number(process.env.BRIDGE_PORT || 4727);
-const BRIDGE_VERSION = '2.2.0-ws-retry';
+const BRIDGE_VERSION = '3.0.0-send-worker';
 const DEVTOOLS_HOST = process.env.DEVTOOLS_HOST || '127.0.0.1';
+const SHOP_SCAN_MS = 10000;
+const WS_RECOVERY_ROUNDS = 2;
 
 function loadBridgeConfig() {
   try {
@@ -287,11 +289,373 @@ const WS_HOOK_SCRIPT = String.raw`(function(){
   return window.__qfBridgeDiag ? window.__qfBridgeDiag() : { ok: true, sockets: existing.length };
 })()`.replace('__QF_BRIDGE_VERSION__', BRIDGE_VERSION);
 
-let cachedClient = null;
-let cachedShopTitle = '';
-const captureWatchClients = new Map();
+const shopWorkers = new Map();
 const sessionSniffer = new Map();
 const cdpWsTracker = new WeakMap();
+
+function getShopKey(shopTitle) {
+  return normalizeShopKey(shopTitle).toLowerCase();
+}
+
+function getOrCreateShopWorker(shopTitle) {
+  const shopKey = getShopKey(shopTitle);
+  if (!shopKey) throw new Error('缺少店铺名称');
+  let worker = shopWorkers.get(shopKey);
+  if (!worker) {
+    worker = {
+      shopKey,
+      shopTitle: normalizeShopKey(shopTitle),
+      client: null,
+      pageInfo: null,
+      hooked: false,
+      lastAckAt: 0,
+      lastError: '',
+      queue: [],
+      processing: false,
+      connectPromise: null,
+      bootstrapAttempted: false,
+    };
+    shopWorkers.set(shopKey, worker);
+  }
+  return worker;
+}
+
+async function releaseShopWorkerClient(worker, reason = '') {
+  if (!worker?.client) return;
+  const tag = worker.shopTitle;
+  try {
+    worker.client.removeAllListeners?.('disconnect');
+    await worker.client.close();
+  } catch {
+    // ignore
+  }
+  worker.client = null;
+  worker.hooked = false;
+  if (reason) console.log(`[bridge-worker] 释放 client「${tag}」(${reason})`);
+}
+
+async function pingShopClient(worker) {
+  if (!worker?.client?.Runtime) return false;
+  try {
+    await worker.client.Runtime.evaluate({ expression: '1+1', returnByValue: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function installWorkerAckTracker(client, worker) {
+  if (client.__workerAckTrackerInstalled) return;
+  client.__workerAckTrackerInstalled = true;
+  client.Network.webSocketFrameReceived(({ response }) => {
+    const raw = response?.payloadData;
+    if (!raw || !String(raw).includes('/message/send')) return;
+    try {
+      const parsed = JSON.parse(String(raw));
+      const body = parsed?.body || {};
+      if (body.code === 0 && body.data?.msgId) {
+        worker.lastAckAt = Date.now();
+      }
+    } catch {
+      // ignore
+    }
+  });
+}
+
+async function connectShopWorker(worker, pageInfo, options = {}) {
+  const { force = false } = options;
+  if (force) await releaseShopWorkerClient(worker, 'force-reconnect');
+
+  if (worker.client) {
+    const alive = await pingShopClient(worker);
+    if (alive) return worker.client;
+    await releaseShopWorkerClient(worker, 'ping-failed');
+  }
+
+  if (worker.connectPromise) return worker.connectPromise;
+
+  worker.connectPromise = (async () => {
+    let target = pageInfo;
+    if (!target?.webSocketDebuggerUrl) {
+      const targets = await fetchDevtoolsTargets();
+      target = pickShopTarget(targets, worker.shopTitle);
+      if (!target?.webSocketDebuggerUrl) {
+        throw new Error(`未找到店铺「${worker.shopTitle}」的千帆页面，请确认千帆客服工作台已打开`);
+      }
+    }
+
+    worker.pageInfo = {
+      shopTitle: worker.shopTitle,
+      shopKey: worker.shopKey,
+      webSocketDebuggerUrl: target.webSocketDebuggerUrl,
+      url: target.url,
+      title: target.title,
+    };
+
+    const client = await CDP({ target: target.webSocketDebuggerUrl });
+    await client.Runtime.enable();
+    await client.Network.enable();
+    await injectWsHook(client);
+    installCdpWsTracker(client, worker);
+    installSessionSniffer(client, worker.shopKey);
+    installNetworkCapture(client, { dataDir: QIANFAN_DATA_DIR, shopTitle: worker.shopKey });
+    installWorkerAckTracker(client, worker);
+
+    client.on('disconnect', () => {
+      if (worker.client === client) {
+        console.warn(`[bridge-worker] Target closed「${worker.shopTitle}」，将自动重连`);
+        worker.client = null;
+        worker.hooked = false;
+        worker.lastError = 'Target closed';
+      }
+    });
+
+    worker.client = client;
+    const diag = await getWsDiagnostics(client);
+    worker.hooked = diag.hooked === true;
+
+    let status = await getSocketReadyStatus(worker);
+    if (!status.socketReady) {
+      const bootstrapDeadline = Date.now() + 5000;
+      while (Date.now() < bootstrapDeadline) {
+        status = await getSocketReadyStatus(worker);
+        if (status.socketReady) break;
+        await injectWsHook(client);
+        await sleep(400);
+      }
+    }
+    if (!status.socketReady && !worker.bootstrapAttempted) {
+      worker.bootstrapAttempted = true;
+      console.log(`[bridge-worker]「${worker.shopTitle}」启动时未捕获 IM socket，bootstrap reload`);
+      try {
+        await gentleReloadShopWorker(worker);
+        const reloadDeadline = Date.now() + 12000;
+        while (Date.now() < reloadDeadline) {
+          status = await getSocketReadyStatus(worker);
+          if (status.socketReady) break;
+          await injectWsHook(worker.client);
+          await sleep(400);
+        }
+      } catch (err) {
+        worker.lastError = String(err.message || err);
+      }
+    }
+
+    console.log(`[bridge-worker] 已连接「${worker.shopTitle}」hook=${worker.hooked} socketReady=${Boolean(status.socketReady)}`);
+    return client;
+  })();
+
+  try {
+    return await worker.connectPromise;
+  } finally {
+    worker.connectPromise = null;
+  }
+}
+
+async function ensureShopWorkerConnected(worker, options = {}) {
+  if (worker.client && !options.force) {
+    const alive = await pingShopClient(worker);
+    if (alive) return worker.client;
+    await releaseShopWorkerClient(worker, 'stale');
+  }
+  return connectShopWorker(worker, worker.pageInfo, options);
+}
+
+async function getSocketReadyStatus(worker) {
+  const empty = {
+    hooked: false,
+    pageSocketReady: false,
+    cdpSocketReady: false,
+    socketReady: false,
+    socketCount: 0,
+    socketUrls: [],
+    readyStates: [],
+    cdpSocketCount: 0,
+  };
+  if (!worker?.client) return empty;
+  try {
+    const diag = await getWsDiagnostics(worker.client);
+    const pageSocketReady = (diag.readyStates || []).some((rs) => rs === 1);
+    const cdpSockets = getCdpImSockets(worker.client);
+    const cdpSocketReady = cdpSockets.length > 0;
+    worker.hooked = diag.hooked === true;
+    return {
+      ...diag,
+      pageSocketReady,
+      cdpSocketReady,
+      socketReady: pageSocketReady || cdpSocketReady,
+      cdpSocketCount: cdpSockets.length,
+    };
+  } catch {
+    return empty;
+  }
+}
+
+async function gentleReloadShopWorker(worker) {
+  if (!worker?.client?.Page) return;
+  console.log(`[bridge-worker] 温和 reload「${worker.shopTitle}」`);
+  try {
+    await worker.client.Page.reload({ ignoreCache: false });
+    await sleep(2500);
+    await injectWsHook(worker.client);
+    const diag = await getWsDiagnostics(worker.client);
+    worker.hooked = diag.hooked === true;
+  } catch (err) {
+    worker.lastError = String(err.message || err);
+    await releaseShopWorkerClient(worker, 'reload-failed');
+    throw err;
+  }
+}
+
+async function waitForImWebSocket(worker, options = {}) {
+  const { timeoutMs = 20000 } = options;
+  const sliceMs = Math.max(4000, Math.floor(timeoutMs / (WS_RECOVERY_ROUNDS + 1)));
+
+  for (let round = 0; round <= WS_RECOVERY_ROUNDS; round++) {
+    await ensureShopWorkerConnected(worker, { force: round > 0 });
+    const deadline = Date.now() + sliceMs;
+
+    while (Date.now() < deadline) {
+      const status = await getSocketReadyStatus(worker);
+      if (status.socketReady) {
+        console.log('[bridge-worker] socket ready', {
+          shop: worker.shopTitle,
+          pageSocketReady: status.pageSocketReady,
+          cdpSocketReady: status.cdpSocketReady,
+          round,
+        });
+        return status;
+      }
+      if (worker.client) await injectWsHook(worker.client);
+      await sleep(350);
+    }
+
+    if (round >= WS_RECOVERY_ROUNDS) break;
+
+    console.log(`[bridge-worker] socket 未就绪，自动恢复第 ${round + 1} 轮「${worker.shopTitle}」`);
+    if (round === 0) {
+      await releaseShopWorkerClient(worker, 'ws-recovery-reconnect');
+      await ensureShopWorkerConnected(worker, { force: true });
+    } else {
+      await gentleReloadShopWorker(worker);
+    }
+  }
+
+  const status = await getSocketReadyStatus(worker);
+  throw new Error(
+    status.hooked
+      ? 'DevTools 已连接，但 IM WebSocket 尚未就绪（可能正在重连），bridge 已自动重试仍失败'
+      : '千帆 IM WebSocket 未捕获，请确认千帆客服工作台已打开并保持登录',
+  );
+}
+
+function enqueueShopSend(shopTitle, taskMeta, taskFn) {
+  const worker = getOrCreateShopWorker(shopTitle);
+  return new Promise((resolve, reject) => {
+    worker.queue.push({ meta: taskMeta, fn: taskFn, resolve, reject });
+    console.log('[bridge-queue] 入队', {
+      shop: worker.shopTitle,
+      type: taskMeta.type || '',
+      buyerNick: taskMeta.buyerNick || '',
+      queueLength: worker.queue.length,
+    });
+    drainShopQueue(worker).catch((err) => console.warn('[bridge-queue] drain error:', err.message));
+  });
+}
+
+async function drainShopQueue(worker) {
+  if (worker.processing) return;
+  worker.processing = true;
+  try {
+    while (worker.queue.length > 0) {
+      const task = worker.queue[0];
+      console.log('[bridge-queue] 执行', {
+        shop: worker.shopTitle,
+        type: task.meta.type || '',
+        buyerNick: task.meta.buyerNick || '',
+        buyerUserId: task.meta.buyerUserId || '',
+        orderId: task.meta.orderId || '',
+        queueLength: worker.queue.length,
+      });
+      try {
+        const result = await task.fn();
+        worker.queue.shift();
+        task.resolve(result);
+      } catch (err) {
+        worker.queue.shift();
+        worker.lastError = String(err.message || err);
+        task.reject(err);
+      }
+    }
+  } finally {
+    worker.processing = false;
+    if (worker.queue.length > 0) {
+      drainShopQueue(worker).catch(() => {});
+    }
+  }
+}
+
+async function scanAndArmShopWorkers() {
+  let devtoolsOk = false;
+  try {
+    const targets = await fetchDevtoolsTargets();
+    devtoolsOk = true;
+    const shops = listQianfanShopPages(targets);
+    if (!shops.length) {
+      console.warn('[bridge-worker] 未找到千帆工作台页面');
+      return { devtoolsOk, shops: [] };
+    }
+    for (const shop of shops) {
+      const worker = getOrCreateShopWorker(shop.shopTitle);
+      worker.shopTitle = shop.shopTitle;
+      try {
+        await connectShopWorker(worker, shop);
+      } catch (err) {
+        worker.lastError = String(err.message || err);
+        console.warn(`[bridge-worker] 连接「${shop.shopTitle}」失败:`, err.message || err);
+      }
+    }
+    return { devtoolsOk, shops };
+  } catch (err) {
+    console.warn('[bridge-worker] DevTools 不可用:', err.message || err);
+    return { devtoolsOk, shops: [], error: String(err.message || err) };
+  }
+}
+
+async function getShopReadySnapshot(worker) {
+  let devtoolsOk = false;
+  try {
+    await fetchDevtoolsTargets();
+    devtoolsOk = true;
+  } catch {
+    // ignore
+  }
+
+  const status = await getSocketReadyStatus(worker);
+  const pageOk = Boolean(worker.client && (await pingShopClient(worker)));
+  return {
+    shopTitle: worker.shopTitle,
+    devtoolsOk,
+    pageOk,
+    hooked: worker.hooked || status.hooked,
+    pageSocketReady: status.pageSocketReady,
+    cdpSocketReady: status.cdpSocketReady,
+    socketUrls: status.socketUrls || [],
+    readyStates: status.readyStates || [],
+    queueLength: worker.queue.length + (worker.processing ? 1 : 0),
+    lastAckAt: worker.lastAckAt || null,
+    lastError: worker.lastError || '',
+    bridgeVersion: BRIDGE_VERSION,
+  };
+}
+
+function buildDiagnosticsMessage(status, { devtoolsOk = true, pageOk = true } = {}) {
+  if (!devtoolsOk) return '千帆未打开或 DevTools 端口不可用';
+  if (!pageOk) return '千帆工作台页面未连接';
+  if (status.pageSocketReady || status.cdpSocketReady) return 'IM WebSocket 已捕获';
+  if (status.hooked) return 'DevTools 已连接但 IM socket 未捕获，正在监听或等待重连';
+  return '千帆页面 hook 未注入';
+}
 
 function isQfImSocketUrl(url) {
   const u = String(url || '').toLowerCase();
@@ -320,7 +684,7 @@ function rankSocketUrl(url) {
   return 10;
 }
 
-function installCdpWsTracker(client) {
+function installCdpWsTracker(client, worker) {
   if (!client?.Network || client.__cdpWsTrackerInstalled) return;
   client.__cdpWsTrackerInstalled = true;
   const state = { sockets: new Map() };
@@ -328,6 +692,9 @@ function installCdpWsTracker(client) {
   client.Network.webSocketCreated(({ requestId, url }) => {
     if (isQfImSocketUrl(url)) {
       state.sockets.set(requestId, { url: String(url || ''), at: Date.now() });
+      if (worker?.shopTitle) {
+        console.log(`[bridge-worker] CDP socket +「${worker.shopTitle}」`, String(url || '').slice(0, 80));
+      }
     }
   });
   client.Network.webSocketClosed(({ requestId }) => {
@@ -384,33 +751,20 @@ async function trySendViaCdp(client, payloadStr) {
   }
 }
 
-async function waitForImWebSocket(client, options = {}) {
-  const { timeoutMs = 15000 } = options;
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const diag = await getWsDiagnostics(client);
-    if (diag.socketCount > 0) return diag;
-    if (getCdpImSockets(client).length > 0) return diag;
-    await injectWsHook(client);
-    await sleep(350);
+async function releaseCdpClient() {
+  for (const worker of shopWorkers.values()) {
+    await releaseShopWorkerClient(worker, 'legacy-release');
   }
-  return getWsDiagnostics(client);
+}
+
+async function getCdpClient(shopTitle, options = {}) {
+  const worker = getOrCreateShopWorker(shopTitle);
+  return ensureShopWorkerConnected(worker, options);
 }
 
 function isCdpTransportError(err) {
   const msg = String(err?.message || err || '');
   return /WebSocket is not open|readyState\s*3|CLOSED|disconnected|Target closed|Protocol error/i.test(msg);
-}
-
-async function releaseCdpClient() {
-  if (!cachedClient) return;
-  try {
-    await cachedClient.close();
-  } catch {
-    // ignore
-  }
-  cachedClient = null;
-  cachedShopTitle = '';
 }
 
 function shopMatches(orderShop, ctxShop) {
@@ -958,8 +1312,14 @@ function enrichSendSession(body, session, templateKind = 'image') {
   }
 
   const uid = String(buyerUserId || '').trim();
-  if (!receiverAppUids.length && uid) {
-    const derived = buildReceiverAppUid(uid);
+  const derived = uid ? buildReceiverAppUid(uid) : '';
+  if (uid && derived) {
+    if (receiverAppUids.length && !receiverMatchesUserId(receiverAppUids, uid)) {
+      receiverAppUids = [derived];
+    } else if (!receiverAppUids.length) {
+      receiverAppUids = [derived];
+    }
+  } else if (!receiverAppUids.length && uid) {
     if (derived) receiverAppUids = [derived];
   }
 
@@ -1494,44 +1854,6 @@ async function getWsDiagnostics(client) {
   }
 }
 
-async function connectCaptureWatcher(pageInfo) {
-  const { shopKey, shopTitle, webSocketDebuggerUrl } = pageInfo;
-  if (!webSocketDebuggerUrl || captureWatchClients.has(shopKey)) return captureWatchClients.get(shopKey);
-
-  const client = await CDP({ target: webSocketDebuggerUrl });
-  const { Runtime, Network } = client;
-  await Runtime.enable();
-  await Network.enable();
-  await injectWsHook(client);
-  installCdpWsTracker(client);
-  installSessionSniffer(client, shopTitle);
-  installNetworkCapture(client, { dataDir: QIANFAN_DATA_DIR, shopTitle });
-
-  captureWatchClients.set(shopKey, client);
-  console.log(`[bridge-capture] 已监听店铺「${shopTitle}」，手动发图/视频时会在此终端输出`);
-  return client;
-}
-
-async function armCaptureWatchers() {
-  try {
-    const targets = await fetchDevtoolsTargets();
-    const shops = listQianfanShopPages(targets);
-    if (!shops.length) {
-      console.warn('[bridge-capture] 未找到千帆工作台页面，请打开千帆客服工作台');
-      return;
-    }
-    for (const shop of shops) {
-      try {
-        await connectCaptureWatcher(shop);
-      } catch (err) {
-        console.warn(`[bridge-capture] 连接「${shop.shopTitle}」失败:`, err.message || err);
-      }
-    }
-  } catch (err) {
-    console.warn('[bridge-capture] DevTools 不可用:', err.message || err);
-  }
-}
-
 function logCaptureStatus() {
   const status = getCaptureStatus(QIANFAN_DATA_DIR);
   for (const kind of ['image', 'video']) {
@@ -1544,40 +1866,6 @@ function logCaptureStatus() {
     else parts.push('HTTP上传✗(需在 bridge 运行时再手动发一次)');
     console.log(`[bridge-capture] ${label}: ${parts.join(' ')}`);
   }
-}
-
-async function getCdpClient(shopTitle, options = {}) {
-  const { force = false } = options;
-  const shopKey = normalizeShopKey(shopTitle);
-  if (!force && cachedClient && cachedShopTitle === shopKey) {
-    try {
-      await cachedClient.Runtime.evaluate({ expression: '1+1', returnByValue: true });
-      return cachedClient;
-    } catch {
-      await releaseCdpClient();
-    }
-  }
-
-  const targets = await fetchDevtoolsTargets();
-  const target = pickShopTarget(targets, shopTitle);
-  if (!target?.webSocketDebuggerUrl) {
-    throw new Error(`未找到店铺「${shopTitle}」的千帆页面，请确认千帆客服工作台已打开`);
-  }
-
-  await releaseCdpClient();
-
-  const client = await CDP({ target: target.webSocketDebuggerUrl });
-  const { Runtime, Network } = client;
-  await Runtime.enable();
-  await Network.enable();
-  await injectWsHook(client);
-  installCdpWsTracker(client);
-  installSessionSniffer(client, shopKey);
-  installNetworkCapture(client, { dataDir: QIANFAN_DATA_DIR, shopTitle: shopKey });
-
-  cachedClient = client;
-  cachedShopTitle = shopKey;
-  return client;
 }
 
 function makeTraceId() {
@@ -1761,7 +2049,7 @@ function buildTextSendPayload({ appCid, receiverAppUids, text, seq = 1, manualTe
   };
 }
 
-async function deliverTextMessage(client, sendSession, { text, seq, shopTitle, buyerNick, orderId = '' }) {
+async function deliverTextMessage(worker, sendSession, { text, seq, shopTitle, buyerNick, orderId = '' }) {
   const safeText = String(text || '').trim();
   if (!safeText) throw new Error('请先填写要发送的文字');
 
@@ -1777,7 +2065,8 @@ async function deliverTextMessage(client, sendSession, { text, seq, shopTitle, b
     console.log('[bridge-relay] 使用已录制的文字发送 WS 模板');
   }
 
-  const sent = await sendPayloadViaWs(client, built.payloadStr, sendSession.appCid);
+  const client = worker.client;
+  const sent = await sendPayloadViaWs(worker, built.payloadStr, sendSession.appCid);
   let sendContentInfo = null;
   try {
     sendContentInfo = JSON.parse(built.payloadStr)?.body?.contentInfo || null;
@@ -1788,6 +2077,7 @@ async function deliverTextMessage(client, sendSession, { text, seq, shopTitle, b
     skipNativeSync: false,
     allowLooseAck: false,
     contentInfo: sendContentInfo,
+    worker,
   });
   await refreshConversationAfterSend(client, sendSession.buyerNick || buyerNick);
 
@@ -1795,6 +2085,7 @@ async function deliverTextMessage(client, sendSession, { text, seq, shopTitle, b
     shopTitle: sendSession.shopTitle || shopTitle,
     buyerNick: sendSession.buyerNick || buyerNick,
     orderId,
+    via: sent.via || 'unknown',
     ws: sent.url,
     traceId: built.traceId,
     msgId: ack.msgId,
@@ -1810,13 +2101,14 @@ async function deliverTextMessage(client, sendSession, { text, seq, shopTitle, b
   });
 }
 
-async function handleSendText(body) {
+async function handleSendTextInner(body) {
   const { shopTitle = '祥钰珠宝', buyerNick = '', orderId = '' } = body || {};
   const session = enrichSendSession(body, await resolveSessionForSend(body), 'text');
-  const client = await getCdpClient(session.shopTitle || shopTitle, { force: false });
-  await waitForImWebSocket(client, { timeoutMs: 8000 });
+  const worker = getOrCreateShopWorker(session.shopTitle || shopTitle);
+  await waitForImWebSocket(worker, { timeoutMs: 20000 });
+  const client = worker.client;
   const seq = await allocSendSeq(client);
-  const receipt = await deliverTextMessage(client, session, {
+  const receipt = await deliverTextMessage(worker, session, {
     text: body.text,
     seq,
     shopTitle,
@@ -1825,6 +2117,16 @@ async function handleSendText(body) {
   });
   await bumpSendSeq(client, seq);
   return receipt;
+}
+
+async function handleSendText(body) {
+  const shopTitle = body?.shopTitle || '祥钰珠宝';
+  return enqueueShopSend(shopTitle, {
+    type: 'send_text',
+    buyerNick: body?.buyerNick || '',
+    buyerUserId: body?.buyerUserId || '',
+    orderId: body?.orderId || '',
+  }, () => handleSendTextInner(body));
 }
 
 function buildImageSendPayload({
@@ -2048,30 +2350,25 @@ function buildVideoSendPayload({
   };
 }
 
-async function sendPayloadViaWs(client, payloadStr, appCid, options = {}) {
-  const { timeoutMs = 15000, retryIntervalMs = 400 } = options;
-  const deadline = Date.now() + timeoutMs;
-  let lastCount = 0;
+async function sendPayloadViaWs(worker, payloadStr, appCid, options = {}) {
+  await waitForImWebSocket(worker, options);
+  const client = worker.client;
+  if (!client) throw new Error('千帆页面未连接');
 
-  while (Date.now() < deadline) {
-    const pageResult = await trySendViaPageHook(client, payloadStr, appCid);
-    if (pageResult?.ok) return pageResult;
-    lastCount = pageResult?.count ?? lastCount;
-
-    const cdpResult = await trySendViaCdp(client, payloadStr);
-    if (cdpResult?.ok) return cdpResult;
-
-    await injectWsHook(client);
-    await sleep(retryIntervalMs);
+  const cdpResult = await trySendViaCdp(client, payloadStr);
+  if (cdpResult?.ok) {
+    console.log('[bridge-relay] 发送 via=cdp', { shop: worker.shopTitle, url: cdpResult.url });
+    return cdpResult;
   }
 
-  const diag = await getWsDiagnostics(client);
-  if (diag.hooked && diag.socketCount === 0 && getCdpImSockets(client).length === 0) {
-    throw new Error(
-      '千帆 IM 连接尚未就绪（切换买家后 WebSocket 可能正在重连）。请稍等几秒后重试，或刷新千帆工作台。',
-    );
+  const pageResult = await trySendViaPageHook(client, payloadStr, appCid);
+  if (pageResult?.ok) {
+    console.log('[bridge-relay] 发送 via=page', { shop: worker.shopTitle, url: pageResult.url });
+    return pageResult;
   }
-  throw new Error(`未找到可用的 IM WebSocket（当前 ${lastCount || diag.socketCount || 0} 条），请确认千帆客服工作台已打开并保持登录`);
+
+  worker.lastError = 'no_send_socket';
+  throw new Error('IM WebSocket 发送失败，bridge 将自动恢复后重试');
 }
 
 const ACK_TIMEOUT_MS = 15000;
@@ -2331,7 +2628,7 @@ async function refreshConversationAfterSend(client, buyerNick) {
 }
 
 async function confirmSendAndSync(client, session, built, label, options = {}) {
-  const { skipNativeSync = false, allowLooseAck = true, contentInfo = null } = options;
+  const { skipNativeSync = false, allowLooseAck = true, contentInfo = null, worker = null } = options;
   const sentAtMs = Date.now();
   const ack = await waitForSendAck(
     client,
@@ -2339,6 +2636,8 @@ async function confirmSendAndSync(client, session, built, label, options = {}) {
     sentAtMs,
     { allowLoose: allowLooseAck }
   );
+
+  if (ack?.msgId && worker) worker.lastAckAt = Date.now();
 
   let sellerToken =
     parseSenderAppUid(ack.ackData?.extension) ||
@@ -2491,9 +2790,6 @@ async function resolveSessionForSend(body) {
     appCid: `${session.appCid.slice(0, 36)}…`,
   });
 
-  const openClient = await getCdpClient(session.shopTitle || shopTitle, { force: false });
-  await waitForImWebSocket(openClient, { timeoutMs: 12000 });
-
   return session;
 }
 
@@ -2506,31 +2802,17 @@ function readFileAsBase64(filePath, mimeOverride) {
   return `data:${mime};base64,${buf.toString('base64')}`;
 }
 
-async function handleSend(body) {
+async function handleSendImageInner(body) {
   const {
-    type = 'send_image',
     shopTitle = '祥钰珠宝',
     buyerNick = '',
     orderId = '',
     imageBase64 = '',
     imagePath = '',
     imageUrl: presetUrl = '',
-    videoBase64 = '',
-    videoPath = '',
-    coverBase64 = '',
-    videoMeta = {},
-    fileName = 'xiangyu.mp4',
     sendPreface = false,
     prefaceText = '',
   } = body || {};
-
-  if (type === 'send_text') {
-    return handleSendText(body);
-  }
-
-  if (type === 'send_video' || videoBase64 || videoPath) {
-    return handleSendVideo(body);
-  }
 
   let imageData = imageBase64;
   if (!imageData && imagePath && fs.existsSync(imagePath)) {
@@ -2542,6 +2824,10 @@ async function handleSend(body) {
   }
 
   const session = enrichSendSession(body, await resolveSessionForSend(body), 'image');
+  const worker = getOrCreateShopWorker(session.shopTitle || shopTitle);
+  await waitForImWebSocket(worker, { timeoutMs: 20000 });
+  const client = worker.client;
+
   console.log('[bridge-relay] 发送图片', {
     shopTitle: session.shopTitle || shopTitle,
     buyerNick: session.buyerNick || buyerNick,
@@ -2549,14 +2835,12 @@ async function handleSend(body) {
     appCid: session.appCid ? `${session.appCid.slice(0, 30)}…` : '',
     withPreface: Boolean(sendPreface && String(prefaceText || '').trim()),
   });
-  const client = await getCdpClient(session.shopTitle || shopTitle, { force: false });
-  await waitForImWebSocket(client, { timeoutMs: 8000 });
 
   let prefaceReceipt = null;
   const safePreface = String(prefaceText || '').trim();
   if (sendPreface && safePreface) {
     const textSeq = await allocSendSeq(client);
-    prefaceReceipt = await deliverTextMessage(client, session, {
+    prefaceReceipt = await deliverTextMessage(worker, session, {
       text: safePreface,
       seq: textSeq,
       shopTitle: session.shopTitle || shopTitle,
@@ -2611,7 +2895,7 @@ async function handleSend(body) {
     console.log('[bridge-relay] 使用已录制的图片发送 WS 模板');
   }
 
-  const sent = await sendPayloadViaWs(client, built.payloadStr, session.appCid);
+  const sent = await sendPayloadViaWs(worker, built.payloadStr, session.appCid);
   let ack;
   let syncResult;
   let sendContentInfo = null;
@@ -2625,6 +2909,7 @@ async function handleSend(body) {
       skipNativeSync: false,
       allowLooseAck: false,
       contentInfo: sendContentInfo,
+      worker,
     }));
     await bumpSendSeq(client, imageSeq);
     await refreshConversationAfterSend(client, session.buyerNick || buyerNick);
@@ -2636,6 +2921,7 @@ async function handleSend(body) {
     shopTitle: session.shopTitle || shopTitle,
     buyerNick: session.buyerNick || buyerNick,
     orderId,
+    via: sent.via || 'unknown',
     ws: sent.url,
     traceId: built.traceId,
     msgId: ack.msgId,
@@ -2668,7 +2954,34 @@ async function handleSend(body) {
   return imageReceipt;
 }
 
-async function handleSendVideo(body) {
+async function handleSend(body) {
+  const {
+    type = 'send_image',
+    shopTitle = '祥钰珠宝',
+    buyerNick = '',
+    buyerUserId = '',
+    orderId = '',
+    videoBase64 = '',
+    videoPath = '',
+  } = body || {};
+
+  if (type === 'send_text') {
+    return handleSendText(body);
+  }
+
+  if (type === 'send_video' || videoBase64 || videoPath) {
+    return handleSendVideo(body);
+  }
+
+  return enqueueShopSend(shopTitle, {
+    type: 'send_image',
+    buyerNick,
+    buyerUserId,
+    orderId,
+  }, () => handleSendImageInner(body));
+}
+
+async function handleSendVideoInner(body) {
   const {
     shopTitle = '祥钰珠宝',
     buyerNick = '',
@@ -2694,8 +3007,9 @@ async function handleSendVideo(body) {
   }
 
   const session = enrichSendSession(body, await resolveSessionForSend(body), 'video');
-  const client = await getCdpClient(session.shopTitle || shopTitle, { force: false });
-  await waitForImWebSocket(client, { timeoutMs: 8000 });
+  const worker = getOrCreateShopWorker(session.shopTitle || shopTitle);
+  await waitForImWebSocket(worker, { timeoutMs: 20000 });
+  const client = worker.client;
   const videoSeq = await allocSendSeq(client);
 
   const meta = normalizeVideoMeta(videoMeta);
@@ -2746,7 +3060,7 @@ async function handleSendVideo(body) {
     fileName,
   });
 
-  const sent = await sendPayloadViaWs(client, built.payloadStr, session.appCid);
+  const sent = await sendPayloadViaWs(worker, built.payloadStr, session.appCid);
   let sendContentInfo = null;
   try {
     sendContentInfo = JSON.parse(built.payloadStr)?.body?.contentInfo || null;
@@ -2757,6 +3071,7 @@ async function handleSendVideo(body) {
     skipNativeSync: false,
     allowLooseAck: false,
     contentInfo: sendContentInfo,
+    worker,
   });
   await bumpSendSeq(client, videoSeq);
   await refreshConversationAfterSend(client, session.buyerNick || buyerNick);
@@ -2765,6 +3080,7 @@ async function handleSendVideo(body) {
     shopTitle: session.shopTitle || shopTitle,
     buyerNick: session.buyerNick || buyerNick,
     orderId,
+    via: sent.via || 'unknown',
     ws: sent.url,
     traceId: built.traceId,
     msgId: ack.msgId,
@@ -2777,6 +3093,16 @@ async function handleSendVideo(body) {
     built,
     mediaType: 'video',
   });
+}
+
+async function handleSendVideo(body) {
+  const shopTitle = body?.shopTitle || '祥钰珠宝';
+  return enqueueShopSend(shopTitle, {
+    type: 'send_video',
+    buyerNick: body?.buyerNick || '',
+    buyerUserId: body?.buyerUserId || '',
+    orderId: body?.orderId || '',
+  }, () => handleSendVideoInner(body));
 }
 
 function readBody(req) {
@@ -2836,28 +3162,66 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === 'GET' && url.pathname === '/ready') {
+      let devtoolsOk = false;
+      try {
+        await fetchDevtoolsTargets();
+        devtoolsOk = true;
+      } catch {
+        devtoolsOk = false;
+      }
+
+      await scanAndArmShopWorkers().catch(() => {});
+
+      const shops = [];
+      for (const worker of shopWorkers.values()) {
+        shops.push(await getShopReadySnapshot(worker));
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          ok: shops.some((s) => s.pageSocketReady || s.cdpSocketReady),
+          devtoolsOk,
+          bridgeVersion: BRIDGE_VERSION,
+          shops,
+        }),
+      );
+      return;
+    }
+
     if (req.method === 'GET' && url.pathname === '/diagnostics') {
+      let devtoolsOk = false;
+      try {
+        await fetchDevtoolsTargets();
+        devtoolsOk = true;
+      } catch {
+        devtoolsOk = false;
+      }
+
       const shopTitle = url.searchParams.get('shopTitle') || url.searchParams.get('shop') || '';
       if (shopTitle) {
         try {
-          const client = await getCdpClient(shopTitle, { force: false });
-          const diag = await getWsDiagnostics(client);
-          const ok = diag.hooked === true && (diag.socketCount > 0 || getCdpImSockets(client).length > 0);
-          const message =
-            ok
-              ? 'IM WebSocket 已捕获'
-              : diag.hooked && diag.socketCount === 0
-                ? '千帆 IM 连接尚未就绪，切换买家后 WebSocket 可能正在重连，请稍等后重试'
-                : '千帆页面 hook 未注入或未连接';
+          const worker = getOrCreateShopWorker(shopTitle);
+          await ensureShopWorkerConnected(worker, { force: false });
+          const status = await getSocketReadyStatus(worker);
+          const pageOk = Boolean(worker.client && (await pingShopClient(worker)));
+          const ok = status.pageSocketReady || status.cdpSocketReady;
+          const message = buildDiagnosticsMessage(status, { devtoolsOk, pageOk });
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ok, message, ...diag }));
+          res.end(JSON.stringify({ ok, message, ...status, bridgeVersion: BRIDGE_VERSION }));
         } catch (err) {
+          const message = devtoolsOk
+            ? String(err.message || err)
+            : '千帆未打开或 DevTools 端口不可用';
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(
             JSON.stringify({
               ok: false,
-              message: String(err.message || err),
+              message,
               hooked: false,
+              pageSocketReady: false,
+              cdpSocketReady: false,
               socketCount: 0,
               socketUrls: [],
               readyStates: [],
@@ -2868,37 +3232,19 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const targets = await fetchDevtoolsTargets();
-      const shops = listQianfanShopPages(targets);
+      await scanAndArmShopWorkers().catch(() => {});
       const results = [];
-      for (const shop of shops) {
-        try {
-          const client = await connectCaptureWatcher(shop);
-          const diag = await getWsDiagnostics(client);
-          const ok = diag.hooked === true && (diag.socketCount > 0 || getCdpImSockets(client).length > 0);
-          results.push({
-            shopTitle: shop.shopTitle,
-            ok,
-            message:
-              ok
-                ? 'IM WebSocket 已捕获'
-                : diag.hooked && diag.socketCount === 0
-                  ? '千帆 IM 连接尚未就绪，切换买家后 WebSocket 可能正在重连，请稍等后重试'
-                  : '千帆页面 hook 未注入或未连接',
-            ...diag,
-          });
-        } catch (err) {
-          results.push({
-            shopTitle: shop.shopTitle,
-            ok: false,
-            message: String(err.message || err),
-            hooked: false,
-            socketCount: 0,
-            socketUrls: [],
-            readyStates: [],
-            bridgeVersion: BRIDGE_VERSION,
-          });
-        }
+      for (const worker of shopWorkers.values()) {
+        const status = await getSocketReadyStatus(worker);
+        const pageOk = Boolean(worker.client && (await pingShopClient(worker)));
+        const ok = status.pageSocketReady || status.cdpSocketReady;
+        results.push({
+          shopTitle: worker.shopTitle,
+          ok,
+          message: buildDiagnosticsMessage(status, { devtoolsOk, pageOk }),
+          ...status,
+          bridgeVersion: BRIDGE_VERSION,
+        });
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: results.some((r) => r.ok), bridgeVersion: BRIDGE_VERSION, shops: results }));
@@ -2949,8 +3295,8 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`[bridge-relay] http://127.0.0.1:${PORT}`);
-  console.log(`[bridge-relay] POST /send  /open-session  GET /health  GET /diagnostics  GET /ark-ticket  GET /capture/status`);
-  console.log(`[bridge-relay] 录制说明: 启动后会自动监听千帆页面；手动发图/视频时终端会输出 [bridge-capture]`);
+  console.log(`[bridge-relay] POST /send  /open-session  GET /health  GET /ready  GET /diagnostics  GET /ark-ticket  GET /capture/status`);
+  console.log(`[bridge-relay] 常驻发送内核：启动即监听千帆工作台，每 ${SHOP_SCAN_MS / 1000}s 扫描新店铺`);
   console.log(`[bridge-relay] DevTools ${DEVTOOLS_HOST}:${DEVTOOLS_PORT}`);
   console.log(`[bridge-relay] 千帆数据目录 ${QIANFAN_DATA_DIR}`);
 
@@ -2958,10 +3304,10 @@ server.listen(PORT, '127.0.0.1', () => {
     console.log('[bridge-capture] 已从千帆中转机器人日志同步 WS 发送模板');
   }
   logCaptureStatus();
-  armCaptureWatchers().catch((err) => {
-    console.warn('[bridge-capture] 启动监听失败:', err.message || err);
+  scanAndArmShopWorkers().catch((err) => {
+    console.warn('[bridge-worker] 启动监听失败:', err.message || err);
   });
   setInterval(() => {
-    armCaptureWatchers().catch(() => {});
-  }, 30000);
+    scanAndArmShopWorkers().catch(() => {});
+  }, SHOP_SCAN_MS);
 });

@@ -9,7 +9,9 @@ apps/xiangyu/data/
 *.db-journal
 .env
 .env.local
-deploy/secrets.local
+deploy/frpc.toml
+apps/web/tsconfig.tsbuildinfo
+
 deploy/.frp-token
 __pycache__/
 *.pyc
