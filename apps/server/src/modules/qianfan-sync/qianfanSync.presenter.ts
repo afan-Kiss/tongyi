@@ -69,16 +69,31 @@ export function presentLog(row: QianfanSyncLog & { shop?: QianfanShopAccount | n
   } catch {
     detail = {}
   }
+  const friendly = friendlyLogMessage(row.message, detail)
   return {
     id: row.id,
     shopId: row.shopId,
     shopName: row.shop?.shopName,
     syncJobId: row.syncJobId,
     level: row.level,
-    message: row.message,
+    message: friendly,
+    rawMessage: row.message,
     detail,
     createdAt: fmtTime(row.createdAt),
   }
+}
+
+function friendlyLogMessage(message: string, detail: Record<string, unknown>): string {
+  const msg = String(message || '').trim()
+  const lower = msg.toLowerCase()
+  if (/cookie|token|401|403|未找到 ark/i.test(msg)) return 'Cookie 不可用，请先打开千帆客服台或重新采集'
+  if (/timeout|超时|aborted/i.test(lower)) return '接口超时，稍后再试'
+  if (/网络|network|fetch failed/i.test(lower)) return '网络异常，无法连接千帆后台'
+  if (/非 json|invalid_json|返回异常/i.test(lower)) return '千帆后台返回异常，稍后再试'
+  if (/没有拉到新数据|新增 0 条，更新 0 条/i.test(msg)) return '暂无新数据，系统会保留上次数据'
+  if (detail.code === 'COOKIE_INVALID') return 'Cookie 不可用，请先打开千帆客服台或重新采集'
+  if (detail.code === 'TIMEOUT') return '接口超时，稍后再试'
+  return msg || '同步记录'
 }
 
 export function presentOrder(row: QianfanRawOrder & { shop?: QianfanShopAccount | null }) {

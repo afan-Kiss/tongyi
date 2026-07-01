@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma'
+import { computeValidAmountAfterAfterSale } from '../live-analysis/liveAnalysis-valid-revenue'
 import type { NormalizedAfterSale, NormalizedLiveSession, NormalizedOrder } from './qianfanSync.types'
 
 async function ensureAnchor(name: string) {
@@ -8,6 +9,35 @@ async function ensureAnchor(name: string) {
     where: { name: trimmed },
     create: { name: trimmed, displayName: trimmed },
     update: {},
+  })
+}
+
+function parseOrderStatusFromRaw(rawJson: string): string {
+  try {
+    const raw = JSON.parse(rawJson || '{}') as Record<string, unknown>
+    const status = String(
+      raw.status_desc ?? raw.order_status_desc ?? raw.orderStatus ?? raw.status ?? '已完成',
+    ).trim()
+    return status || '已完成'
+  } catch {
+    return '已完成'
+  }
+}
+
+async function reaggregateLiveSession(sessionId: string) {
+  const agg = await prisma.liveOrder.aggregate({
+    where: { sessionId },
+    _sum: { amount: true, validAmount: true, refundAmount: true },
+    _count: true,
+  })
+  await prisma.liveSession.update({
+    where: { id: sessionId },
+    data: {
+      grossSalesAmount: agg._sum.amount || 0,
+      validSalesAmount: agg._sum.validAmount || 0,
+      refundAmount: agg._sum.refundAmount || 0,
+      orderCount: agg._count,
+    },
   })
 }
 
@@ -143,36 +173,29 @@ export async function syncLiveSessionsToBusiness(rows: NormalizedLiveSession[]) 
 
 export async function syncAfterSalesToOrders(afterSales: NormalizedAfterSale[]) {
   let updated = 0
+  const touchedSessions = new Set<string>()
+
   for (const row of afterSales) {
     if (!row.orderNo) continue
     const orders = await prisma.liveOrder.findMany({ where: { orderNo: row.orderNo } })
     for (const order of orders) {
+      const orderStatus = parseOrderStatusFromRaw(order.rawJson)
+      const validAmount = computeValidAmountAfterAfterSale({
+        amount: order.amount,
+        refundAmount: row.refundAmount,
+        orderStatus,
+        afterSaleStatus: row.status,
+      })
       await prisma.liveOrder.update({
         where: { id: order.id },
         data: {
           refundAmount: row.refundAmount,
           afterSaleStatus: row.status,
-          validAmount: Math.max(0, order.amount - row.refundAmount),
+          validAmount,
         },
       })
       updated += 1
-      const session = await prisma.liveSession.findUnique({ where: { id: order.sessionId } })
-      if (session) {
-        const agg = await prisma.liveOrder.aggregate({
-          where: { sessionId: session.id },
-          _sum: { amount: true, validAmount: true, refundAmount: true },
-          _count: true,
-        })
-        await prisma.liveSession.update({
-          where: { id: session.id },
-          data: {
-            grossSalesAmount: agg._sum.amount || 0,
-            validSalesAmount: agg._sum.validAmount || 0,
-            refundAmount: agg._sum.refundAmount || 0,
-            orderCount: agg._count,
-          },
-        })
-      }
+      touchedSessions.add(order.sessionId)
     }
 
     if (row.refundAmount > 0) {
@@ -195,5 +218,10 @@ export async function syncAfterSalesToOrders(afterSales: NormalizedAfterSale[]) 
       }
     }
   }
+
+  for (const sessionId of touchedSessions) {
+    await reaggregateLiveSession(sessionId)
+  }
+
   return updated
 }

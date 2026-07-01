@@ -234,3 +234,20 @@ export function computeValidAmountYuan(
   })
   return centToYuan(resolveValidRevenueAmountCent(input))
 }
+
+/** 售后同步回写 LiveOrder 时，按完整有效成交规则重算（非支付减退款） */
+export function computeValidAmountAfterAfterSale(params: {
+  amount: number
+  refundAmount: number
+  orderStatus?: string | null
+  afterSaleStatus?: string | null
+  refundStatus?: string | null
+}): number {
+  return computeValidAmountYuan(
+    params.amount,
+    String(params.orderStatus || '已完成').trim() || '已完成',
+    String(params.afterSaleStatus || '').trim(),
+    params.refundAmount,
+    params.refundStatus ?? undefined,
+  )
+}

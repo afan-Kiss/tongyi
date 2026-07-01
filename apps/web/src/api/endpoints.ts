@@ -388,6 +388,93 @@ export const qianfanSyncApi = {
   },
 }
 
+export const reviewCenterApi = {
+  overview: () =>
+    request<{
+      data: {
+        totalReviews: number
+        reviewsToday: number
+        pendingReplies: number
+        negativeCount: number
+        goodRate: number
+        hint: string
+      }
+    }>('/review-center/overview'),
+  reviews: (params: Record<string, string | number> = {}) => {
+    const q = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => v !== '' && q.set(k, String(v)))
+    return request<{ data: { items: Array<Record<string, unknown>>; total: number } }>(`/review-center/reviews?${q}`)
+  },
+  pendingReplies: (params: Record<string, string | number> = {}) => {
+    const q = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => q.set(k, String(v)))
+    return request<{ data: { items: Array<Record<string, unknown>>; total: number } }>(
+      `/review-center/pending-replies?${q}`,
+    )
+  },
+  negative: (params: Record<string, string | number> = {}) => {
+    const q = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => q.set(k, String(v)))
+    return request<{ data: { items: Array<Record<string, unknown>>; total: number } }>(`/review-center/negative?${q}`)
+  },
+  stats: () => request<{ data: Record<string, unknown> }>('/review-center/stats'),
+  markHandled: (id: string, note?: string) =>
+    request(`/review-center/reviews/${encodeURIComponent(id)}/mark-handled`, {
+      method: 'POST',
+      body: JSON.stringify({ note }),
+    }),
+  markIgnored: (id: string, note?: string) =>
+    request(`/review-center/reviews/${encodeURIComponent(id)}/mark-ignored`, {
+      method: 'POST',
+      body: JSON.stringify({ note }),
+    }),
+}
+
+export const afterSaleWorkbenchApi = {
+  overview: () =>
+    request<{
+      data: {
+        totalItems: number
+        pendingToday: number
+        refundCount: number
+        pendingRefundAmount: number
+        financePendingCount: number
+        hint: string
+      }
+    }>('/after-sale-workbench/overview'),
+  items: (params: Record<string, string | number> = {}) => {
+    const q = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => v !== '' && q.set(k, String(v)))
+    return request<{ data: { items: Array<Record<string, unknown>>; total: number } }>(
+      `/after-sale-workbench/items?${q}`,
+    )
+  },
+  refunds: (params: Record<string, string | number> = {}) => {
+    const q = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => q.set(k, String(v)))
+    return request<{ data: { items: Array<Record<string, unknown>>; total: number } }>(
+      `/after-sale-workbench/refunds?${q}`,
+    )
+  },
+  pending: (params: Record<string, string | number> = {}) => {
+    const q = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => q.set(k, String(v)))
+    return request<{ data: { items: Array<Record<string, unknown>>; total: number } }>(
+      `/after-sale-workbench/pending?${q}`,
+    )
+  },
+  markHandled: (id: string, note?: string) =>
+    request(`/after-sale-workbench/items/${encodeURIComponent(id)}/mark-handled`, {
+      method: 'POST',
+      body: JSON.stringify({ note }),
+    }),
+  markIgnored: (id: string, note?: string) =>
+    request(`/after-sale-workbench/items/${encodeURIComponent(id)}/mark-ignored`, {
+      method: 'POST',
+      body: JSON.stringify({ note }),
+    }),
+}
+
 export const platformApi = {
   agentStatus: () => request<{ data: import('./types').AgentOverview }>('/agent/status'),
   agentTasks: (limit = 50) => request<{ data: { tasks: import('./types').AgentTaskView[] } }>(`/agent/tasks?limit=${limit}`),

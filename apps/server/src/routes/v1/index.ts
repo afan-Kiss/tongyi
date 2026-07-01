@@ -19,6 +19,8 @@ import { orderFinanceAlertRouter } from '../../modules/order-finance-alert/order
 import { accountingRouter } from '../../modules/accounting/accounting.routes'
 import { liveAnalysisRouter } from '../../modules/live-analysis/liveAnalysis.routes'
 import { qianfanSyncRouter } from '../../modules/qianfan-sync/qianfanSync.routes'
+import { reviewCenterRouter } from '../../modules/review-center/reviewCenter.routes'
+import { afterSaleWorkbenchRouter } from '../../modules/after-sale-workbench/afterSaleWorkbench.routes'
 import { getEffectivePortPlan } from '../../config/env'
 
 export const v1Router = Router()
@@ -61,6 +63,8 @@ v1Router.use('/order-finance-alerts', orderFinanceAlertRouter)
 v1Router.use('/accounting', accountingRouter)
 v1Router.use('/live-analysis', liveAnalysisRouter)
 v1Router.use('/qianfan-sync', qianfanSyncRouter)
+v1Router.use('/review-center', reviewCenterRouter)
+v1Router.use('/after-sale-workbench', afterSaleWorkbenchRouter)
 
 v1Router.post('/print/bracelet-tag', async (req, res) => {
   const { queryByCertNo } = await import('../../services/inventory-query.service')

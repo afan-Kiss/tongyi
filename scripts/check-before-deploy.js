@@ -107,6 +107,10 @@ async function main() {
   else fail('live-analysis 路由已挂载')
   if (v1Index.includes("use('/qianfan-sync'")) pass('qianfan-sync 路由已挂载')
   else fail('qianfan-sync 路由已挂载')
+  if (v1Index.includes("use('/review-center'")) pass('review-center 路由已挂载')
+  else fail('review-center 路由已挂载')
+  if (v1Index.includes("use('/after-sale-workbench'")) pass('after-sale-workbench 路由已挂载')
+  else fail('after-sale-workbench 路由已挂载')
 
   // 8. 迁移脚本存在
   for (const f of ['import-legacy-accounting.js', 'import-legacy-live-analysis.js', 'check-valid-revenue-rules.js']) {

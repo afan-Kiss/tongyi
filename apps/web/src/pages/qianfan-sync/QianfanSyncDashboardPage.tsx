@@ -113,6 +113,20 @@ export const QianfanSyncDashboardPage: React.FC = () => {
               </PremiumCard>
             ) : null}
           </div>
+          <div className="flex flex-wrap gap-2">
+            <Link to="/inventory/review-center" className="rounded-full bg-white/80 px-4 py-2 text-sm hover:bg-white">
+              去好评中心
+            </Link>
+            <Link to="/inventory/after-sales" className="rounded-full bg-white/80 px-4 py-2 text-sm hover:bg-white">
+              去售后工作台
+            </Link>
+            <Link to="/inventory/live-analysis" className="rounded-full bg-white/80 px-4 py-2 text-sm hover:bg-white">
+              去主播分析
+            </Link>
+            <Link to="/inventory/accounting" className="rounded-full bg-white/80 px-4 py-2 text-sm hover:bg-white">
+              去经营记账
+            </Link>
+          </div>
           <Link to="/inventory/qianfan-sync/logs" className="text-sm text-[#ff2442] hover:underline">
             查看同步日志 →
           </Link>

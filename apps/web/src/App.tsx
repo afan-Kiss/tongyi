@@ -60,6 +60,19 @@ import { QianfanSyncLivePage } from '@/pages/qianfan-sync/QianfanSyncLivePage'
 import { QianfanSyncLogsPage } from '@/pages/qianfan-sync/QianfanSyncLogsPage'
 import { QianfanSyncSettingsPage } from '@/pages/qianfan-sync/QianfanSyncSettingsPage'
 
+import { ReviewCenterLayout } from '@/pages/review-center/ReviewCenterLayout'
+import { ReviewCenterDashboardPage } from '@/pages/review-center/ReviewCenterDashboardPage'
+import { ReviewListPage } from '@/pages/review-center/ReviewListPage'
+import { PendingReplyPage } from '@/pages/review-center/PendingReplyPage'
+import { NegativeReviewPage } from '@/pages/review-center/NegativeReviewPage'
+import { ReviewStatsPage } from '@/pages/review-center/ReviewStatsPage'
+
+import { AfterSaleWorkbenchLayout } from '@/pages/after-sale-workbench/AfterSaleWorkbenchLayout'
+import { AfterSaleDashboardPage } from '@/pages/after-sale-workbench/AfterSaleDashboardPage'
+import { AfterSaleListPage } from '@/pages/after-sale-workbench/AfterSaleListPage'
+import { RefundListPage } from '@/pages/after-sale-workbench/RefundListPage'
+import { PendingAfterSalePage } from '@/pages/after-sale-workbench/PendingAfterSalePage'
+
 import { RequireFanfan } from '@/components/RequireFanfan'
 
 
@@ -133,6 +146,19 @@ const AuthenticatedRoutes: React.FC = () => (
               <Route path="live" element={<QianfanSyncLivePage />} />
               <Route path="logs" element={<QianfanSyncLogsPage />} />
               <Route path="settings" element={<QianfanSyncSettingsPage />} />
+            </Route>
+            <Route path="review-center" element={<ReviewCenterLayout />}>
+              <Route index element={<ReviewCenterDashboardPage />} />
+              <Route path="reviews" element={<ReviewListPage />} />
+              <Route path="pending" element={<PendingReplyPage />} />
+              <Route path="negative" element={<NegativeReviewPage />} />
+              <Route path="stats" element={<ReviewStatsPage />} />
+            </Route>
+            <Route path="after-sales" element={<AfterSaleWorkbenchLayout />}>
+              <Route index element={<AfterSaleDashboardPage />} />
+              <Route path="list" element={<AfterSaleListPage />} />
+              <Route path="refunds" element={<RefundListPage />} />
+              <Route path="pending" element={<PendingAfterSalePage />} />
             </Route>
             <Route path="agents" element={<AgentCenterPage />} />
             <Route path="system-status" element={<SystemStatusPage />} />

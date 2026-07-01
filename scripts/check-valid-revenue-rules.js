@@ -12,6 +12,7 @@ async function main() {
   const {
     explainValidRevenueOrder,
     buildValidRevenueInputFromRow,
+    computeValidAmountAfterAfterSale,
     yuanToCent,
   } = await import('../apps/server/src/modules/live-analysis/liveAnalysis-valid-revenue.ts')
 
@@ -51,6 +52,28 @@ async function main() {
       row: { amount: 88, orderStatus: '已完成', afterSaleStatus: '售后关闭' },
       expectValid: true,
     },
+    {
+      name: '售后同步回写：已完成 + 已退款（非简单支付减退款）',
+      row: { amount: 100, refundAmount: 100, orderStatus: '已完成', afterSaleStatus: '已退款' },
+      expectValid: false,
+    },
+    {
+      name: '售后同步回写：已完成 + 退款中',
+      row: { amount: 100, refundAmount: 0, orderStatus: '已完成', afterSaleStatus: '退款中' },
+      expectValid: false,
+    },
+    {
+      name: '售后同步回写：已完成 + 售后关闭无退款（保留全额有效成交）',
+      row: { amount: 100, refundAmount: 0, orderStatus: '已完成', afterSaleStatus: '售后关闭' },
+      expectValid: true,
+      expectAmountYuan: 100,
+    },
+    {
+      name: '售后同步回写：已完成 + 客户取消售后（保留有效成交）',
+      row: { amount: 120, refundAmount: 0, orderStatus: '已完成', afterSaleStatus: '客户取消售后' },
+      expectValid: true,
+      expectAmountYuan: 120,
+    },
   ]
 
   let failed = 0
@@ -63,6 +86,18 @@ async function main() {
       console.error(`✗ ${c.name}：期望 ${c.expectValid ? '计入' : '不计入'}，实际 ${explain.valid ? '计入' : '不计入'}（${explain.reason}）`)
     } else {
       console.log(`✓ ${c.name}：${explain.reason}`)
+    }
+    if (c.expectAmountYuan != null && ok) {
+      const yuan = computeValidAmountAfterAfterSale({
+        amount: c.row.amount,
+        refundAmount: c.row.refundAmount ?? 0,
+        orderStatus: c.row.orderStatus,
+        afterSaleStatus: c.row.afterSaleStatus,
+      })
+      if (Math.abs(yuan - c.expectAmountYuan) > 0.001) {
+        failed += 1
+        console.error(`✗ ${c.name}：有效成交金额应为 ${c.expectAmountYuan}，实际 ${yuan}`)
+      }
     }
   }
 

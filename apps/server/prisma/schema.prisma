@@ -530,6 +530,9 @@ model QianfanRawAfterSale {
   status                String?
   refundAmount          Float    @default(0)
   reason                String?
+  handleStatus          String   @default("pending")
+  handledAt             DateTime?
+  note                  String?
   createdAtFromPlatform DateTime?
   updatedAtFromPlatform DateTime?
   rawJson               String   @default("{}")
@@ -580,6 +583,9 @@ model QianfanRawReview {
   content     String?
   reviewTime  DateTime?
   replyStatus String?
+  handleStatus String  @default("pending")
+  handledAt   DateTime?
+  note        String?
   rawJson     String   @default("{}")
   syncedAt    DateTime @default(now())
   createdAt   DateTime @default(now())
