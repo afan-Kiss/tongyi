@@ -24,13 +24,13 @@ export interface PortPlanPorts {
 
 export interface PortPlan {
   basePort: number
-  source: 'preferred' | 'windows-fallback' | 'env'
+  source: 'preferred' | 'windows-fallback' | 'auto-fallback' | 'env'
   ports: PortPlanPorts
   warnings: string[]
 }
 
 export const PREFERRED_PORT_BASE = 1212
-export const FALLBACK_PORT_BASES = [1212, 1312, 1412] as const
+export const FALLBACK_PORT_BASES = [1212, 1312, 1412, 9000, 9100, 9200, 10012] as const
 
 export function buildPortsFromBase(basePort: number): PortPlanPorts {
   return {
@@ -119,9 +119,13 @@ export async function resolvePortPlan(): Promise<PortPlan | null> {
     const group = await canBindPortGroup(base)
     if (!group.ok) continue
 
-    const source = i === 0 ? 'preferred' : 'windows-fallback'
+    const source =
+      i === 0 ? 'preferred' : base <= 1412 ? 'windows-fallback' : 'auto-fallback'
     if (source === 'windows-fallback') {
       warnings.push(`1212 不可用，已自动切换到备用端口组 ${base}。`)
+    }
+    if (source === 'auto-fallback') {
+      warnings.push(`1212/1312/1412 均不可用，已自动切换到端口组 ${base}。`)
     }
     return {
       basePort: base,
@@ -131,7 +135,7 @@ export async function resolvePortPlan(): Promise<PortPlan | null> {
     }
   }
 
-  console.error('[port-planner] 1212 / 1312 / 1412 端口组均不可用，无法启动。')
+  console.error('[port-planner] 1212 / 1312 / 1412 / 9000 / 9100 / 9200 / 10012 端口组均不可用，无法启动。')
   return null
 }
 

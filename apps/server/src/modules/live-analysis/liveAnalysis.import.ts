@@ -5,6 +5,7 @@ import {
   recalcSessionTotals,
   upsertAnchorProfile,
 } from './liveAnalysis.repository'
+import { computeValidAmountYuan } from './liveAnalysis-valid-revenue'
 
 function parseCsvLine(line: string): string[] {
   const out: string[] = []
@@ -39,23 +40,8 @@ function parseDate(v: string | undefined) {
   return Number.isNaN(d.getTime()) ? new Date() : d
 }
 
-/** 判断售后是否应排除有效成交（简化自旧系统 valid-revenue-order.service.ts） */
-export function isValidSaleAfterSale(afterSaleStatus?: string | null, refundAmount = 0) {
-  const s = String(afterSaleStatus || '').trim()
-  if (!s || /无售后|未申请售后|未售后|^-$|^—$/.test(s)) return true
-  if (/售后取消|买家取消售后|客户取消售后/.test(s)) return true
-  if (/售后关闭|退款关闭/.test(s) && refundAmount <= 0) return true
-  if (/售后处理中|退款中|退款成功|已退款|部分退款|退货退款|售后完成/.test(s)) return false
-  return refundAmount <= 0
-}
-
-export function computeValidAmount(amount: number, orderStatus: string, afterSaleStatus: string, refundAmount: number) {
-  const status = String(orderStatus || '')
-  const signed = /已完成|已签收/.test(status)
-  if (!signed) return 0
-  if (!isValidSaleAfterSale(afterSaleStatus, refundAmount)) return 0
-  return Math.max(0, amount - refundAmount)
-}
+/** @deprecated 使用 liveAnalysis-valid-revenue.ts */
+export { computeValidAmountYuan as computeValidAmount } from './liveAnalysis-valid-revenue'
 
 export async function importCsvContent(content: string, filename?: string) {
   const batch = await createImportBatch({ source: 'csv', filename })
@@ -137,7 +123,7 @@ export async function importCsvContent(content: string, filename?: string) {
         const validAmount =
           idx.validAmount >= 0 && cells[idx.validAmount]
             ? num(cells[idx.validAmount])
-            : computeValidAmount(amount, orderStatus, afterSaleStatus, refundAmount)
+            : computeValidAmountYuan(amount, orderStatus, afterSaleStatus, refundAmount)
         await prisma.liveOrder.upsert({
           where: { sessionId_orderNo: { sessionId, orderNo: cells[idx.orderNo] } },
           create: {

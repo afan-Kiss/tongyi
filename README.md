@@ -14,8 +14,8 @@
 | **标签入库** | Excel 已有编号登记进系统、打印吊牌 |
 | **库存** | 列表、详情、拍照、编辑并同步 Excel |
 | **千帆客服** | 四店买家消息监听、微信通知与回复中转 |
-| **经营记账** | 统一入口（iframe 代理，数据库暂不合并） |
-| **主播分析** | 统一入口（iframe 代理） |
+| **经营记账** | tongyi 原生模块（旧系统备份入口在设置页） |
+| **主播分析** | tongyi 原生模块（旧系统备份入口在设置页） |
 | **本地助手** | 云服务器模式下执行本地 Excel / 打印 / 千帆任务 |
 | **系统状态** | 各模块健康、运行模式、同目录系统发现 |
 | **设置** | 系统配置、局域网访问、打印等 |
@@ -41,8 +41,16 @@ start.bat
 npm run start:all
 ```
 
-- 本机访问：<http://127.0.0.1:1212/inventory>
+- 本机访问：<http://127.0.0.1:1212/inventory>（若 1212 被系统保留，会自动尝试 1312 → 1412 → **9000** → 9100 → 9200 → 10012，看启动日志）
 - API 健康检查：<http://127.0.0.1:1212/api/v1/health>（service: `tongyi-operations-api`）
+
+**历史数据迁移：**
+
+```bash
+npm run import:legacy-accounting      # 旧记账 accounting.db → tongyi
+npm run import:legacy-live            # 旧主播分析 app.db → tongyi
+npm run check:deploy                  # 部署前检查
+```
 
 **启动前请先打开 Excel 库存工作簿。**
 
@@ -62,7 +70,13 @@ npm run dev:server
 npm run local-agent -- --server http://127.0.0.1:1212 --qianfan-root "E:\我的软件源码\千帆中转机器人"
 ```
 
-## 端口规划（1212–1222）
+## 端口规划（1212–1222，自动 fallback）
+
+默认从 **1212** 起；Windows Hyper-V 可能保留 1212–1224，系统自动尝试：
+
+**1212 → 1312 → 1412 → 9000 → 9100 → 9200 → 10012**
+
+启动日志会打印实际 `basePort` 与访问地址，无需再手动设 `TONGYI_PORT_BASE=9000`（仍可通过该变量强制指定）。
 
 | 端口 | 用途 |
 |------|------|

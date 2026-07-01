@@ -150,7 +150,19 @@ E:\我的软件源码\tongyi\apps\server\data\app.db
 4. 对符合条件订单累加 `effectiveGmvCent`（按订单号去重）
 5. 低价刷单排除：支付基数 < **¥29** 不计入核心指标（`low-price-brush-order.service.ts`）
 
-**tongyi 第一版：** CSV 导入时用 `computeValidAmount()` 简化实现上述规则；未提供 `validAmount` 列时自动推算。
+**tongyi 实现：** `apps/server/src/modules/live-analysis/liveAnalysis-valid-revenue.ts`（自旧系统完整迁入规则）
+
+- CSV/旧库导入：`computeValidAmountYuan()` 调用上述模块
+- 验收脚本：`node scripts/check-valid-revenue-rules.js`
+
+**有效成交订单池规则摘要：**
+
+1. 订单状态必须是 **已完成** 或 **已签收**
+2. **不是**「支付金额 − 退款」；入池后取 `effectiveGmvCent`（导入场景：payment − refund 作为 effective 近似）
+3. 售后 **处理中 / 已退款 / 退款成功 / 部分退款** → **排除**
+4. **客户取消售后**、**售后关闭且无退款** → **可计入**
+5. 未知售后状态 → **保守排除**
+6. 低价刷单（< ¥29）→ 后续 API 同步阶段接入 `metrics-exclusion`
 
 ### 9.3 refundAmount（退款金额）
 

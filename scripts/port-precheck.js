@@ -3,7 +3,7 @@
  */
 const net = require('node:net')
 
-const FALLBACK_BASES = [1212, 1312, 1412]
+const FALLBACK_BASES = [1212, 1312, 1412, 9000, 9100, 9200, 10012]
 
 function buildPorts(base) {
   return {
@@ -70,7 +70,7 @@ async function resolvePlan() {
     if (!group.ok) continue
     return {
       basePort: base,
-      source: i === 0 ? 'preferred' : 'windows-fallback',
+      source: i === 0 ? 'preferred' : base <= 1412 ? 'windows-fallback' : 'auto-fallback',
       ports: buildPorts(base),
       warnings,
     }
