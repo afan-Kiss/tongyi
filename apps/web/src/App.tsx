@@ -40,7 +40,16 @@ import { AccountingTransactionsPage } from '@/pages/accounting/AccountingTransac
 import { AccountingExpensePage, AccountingCashbackPage } from '@/pages/accounting/AccountingExpensePage'
 import { AccountingSettingsPage } from '@/pages/accounting/AccountingSettingsPage'
 
-import { LiveAnalysisPortalPage } from '@/pages/LiveAnalysisPortalPage'
+import { LiveAnalysisLayout } from '@/pages/live-analysis/LiveAnalysisLayout'
+import { LiveAnalysisDashboardPage } from '@/pages/live-analysis/LiveAnalysisDashboardPage'
+import { LiveSessionsPage } from '@/pages/live-analysis/LiveSessionsPage'
+import { LiveSessionDetailPage } from '@/pages/live-analysis/LiveSessionDetailPage'
+import { AnchorRankingPage } from '@/pages/live-analysis/AnchorRankingPage'
+import { RefundAnalysisPage } from '@/pages/live-analysis/RefundAnalysisPage'
+import { ProductAnalysisPage } from '@/pages/live-analysis/ProductAnalysisPage'
+import { LiveImportPage } from '@/pages/live-analysis/LiveImportPage'
+import { LiveSuggestionsPage } from '@/pages/live-analysis/LiveSuggestionsPage'
+import { LiveAnalysisSettingsPage } from '@/pages/live-analysis/LiveAnalysisSettingsPage'
 
 import { RequireFanfan } from '@/components/RequireFanfan'
 
@@ -96,7 +105,17 @@ const AuthenticatedRoutes: React.FC = () => (
               <Route path="cashback" element={<AccountingCashbackPage />} />
               <Route path="settings" element={<AccountingSettingsPage />} />
             </Route>
-            <Route path="live-analysis" element={<LiveAnalysisPortalPage />} />
+            <Route path="live-analysis" element={<LiveAnalysisLayout />}>
+              <Route index element={<LiveAnalysisDashboardPage />} />
+              <Route path="sessions" element={<LiveSessionsPage />} />
+              <Route path="sessions/:id" element={<LiveSessionDetailPage />} />
+              <Route path="anchors" element={<AnchorRankingPage />} />
+              <Route path="refunds" element={<RefundAnalysisPage />} />
+              <Route path="products" element={<ProductAnalysisPage />} />
+              <Route path="import" element={<LiveImportPage />} />
+              <Route path="suggestions" element={<LiveSuggestionsPage />} />
+              <Route path="settings" element={<LiveAnalysisSettingsPage />} />
+            </Route>
             <Route path="agents" element={<AgentCenterPage />} />
             <Route path="system-status" element={<SystemStatusPage />} />
 

@@ -392,6 +392,118 @@ export interface AccountingSummaryView {
   handledCount: number
 }
 
+export interface LiveAnalysisSummaryView {
+  period: string
+  startDate: string
+  endDate: string
+  grossSalesAmount: number
+  validSalesAmount: number
+  orderCount: number
+  refundAmount: number
+  refundCount: number
+  afterSaleAmount: number
+  sessionCount: number
+  anchorCount: number
+  caliberNotes: {
+    grossSalesAmount: string
+    validSalesAmount: string
+    refundAmount: string
+    orderCount: string
+  }
+}
+
+export interface LiveSessionView {
+  id: string
+  sessionNo: string
+  title?: string | null
+  anchorName: string
+  anchorDisplayName: string
+  startedAt: string
+  endedAt?: string | null
+  platform: string
+  grossSalesAmount: number
+  validSalesAmount: number
+  orderCount: number
+  refundAmount: number
+  refundCount: number
+  afterSaleAmount: number
+  refundRate: number | null
+  status: string
+  plainSummary: string
+  orders?: LiveOrderView[]
+}
+
+export interface LiveOrderView {
+  id: string
+  orderNo: string
+  buyerName?: string | null
+  productName?: string | null
+  skuName?: string | null
+  amount: number
+  validAmount: number
+  refundAmount: number
+  afterSaleStatus?: string | null
+  paidAt?: string | null
+}
+
+export interface AnchorRankingRowView {
+  rank: number
+  anchorName: string
+  displayName?: string | null
+  validSalesAmount: number
+  grossSalesAmount: number
+  orderCount: number
+  sessionCount: number
+  refundAmount: number
+  refundRate: number | null
+  plainSummary: string
+}
+
+export interface RefundAnalysisRowView {
+  orderNo: string
+  sessionNo: string
+  anchorName: string
+  productName?: string | null
+  amount: number
+  refundAmount: number
+  afterSaleStatus?: string | null
+  paidAt?: string | null
+  plainSummary: string
+}
+
+export interface ProductAnalysisRowView {
+  productName: string
+  orderCount: number
+  grossAmount: number
+  validAmount: number
+  refundAmount: number
+  refundRate: number | null
+  plainSummary: string
+}
+
+export interface LiveSuggestionView {
+  id: string
+  type: string
+  priority: 'high' | 'medium' | 'low'
+  title: string
+  message: string
+  action: string
+  anchorName?: string
+  productName?: string
+}
+
+export interface LiveImportBatchView {
+  id: string
+  source: string
+  filename?: string | null
+  status: string
+  statusLabel: string
+  importedCount: number
+  errorMessage?: string | null
+  createdAt: string
+  finishedAt?: string | null
+}
+
 export interface PortalOverview {
   inventory: {
     degraded: boolean

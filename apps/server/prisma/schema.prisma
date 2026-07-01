@@ -362,3 +362,82 @@ model AccountingAttachment {
 
   @@index([recordId])
 }
+
+/// 主播档案（由旧主播分析 Anchor 迁入）
+model AnchorProfile {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  displayName String?
+  status      String   @default("active")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  sessions    LiveSession[]
+
+  @@index([status])
+}
+
+/// 直播场次
+model LiveSession {
+  id                String   @id @default(uuid())
+  sessionNo         String   @unique
+  title             String?
+  anchorName        String
+  anchorProfileId   String?
+  anchorProfile     AnchorProfile? @relation(fields: [anchorProfileId], references: [id], onDelete: SetNull)
+  startedAt         DateTime
+  endedAt           DateTime?
+  platform          String   @default("xiaohongshu")
+  grossSalesAmount  Float    @default(0)
+  validSalesAmount  Float    @default(0)
+  orderCount        Int      @default(0)
+  refundAmount      Float    @default(0)
+  refundCount       Int      @default(0)
+  afterSaleAmount   Float    @default(0)
+  status            String   @default("completed")
+  rawJson           String   @default("{}")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  orders            LiveOrder[]
+
+  @@index([anchorName])
+  @@index([startedAt])
+  @@index([anchorProfileId])
+}
+
+/// 直播订单（场次明细）
+model LiveOrder {
+  id              String   @id @default(uuid())
+  sessionId       String
+  session         LiveSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  orderNo         String
+  buyerName       String?
+  productName     String?
+  skuName         String?
+  amount          Float    @default(0)
+  validAmount     Float    @default(0)
+  refundAmount    Float    @default(0)
+  afterSaleStatus String?
+  paidAt          DateTime?
+  rawJson         String   @default("{}")
+  createdAt       DateTime @default(now())
+
+  @@unique([sessionId, orderNo])
+  @@index([sessionId])
+  @@index([orderNo])
+  @@index([productName])
+}
+
+/// 直播数据导入批次
+model LiveImportBatch {
+  id            String   @id @default(uuid())
+  source        String   @default("csv")
+  filename      String?
+  status        String   @default("pending")
+  importedCount Int      @default(0)
+  errorMessage  String?
+  createdAt     DateTime @default(now())
+  finishedAt    DateTime?
+
+  @@index([status])
+  @@index([createdAt])
+}

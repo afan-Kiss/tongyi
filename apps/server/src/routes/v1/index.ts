@@ -17,6 +17,7 @@ import { systemDiscoveryRouter } from '../../modules/system-discovery/systemDisc
 import { qianfanSendRouter } from '../../modules/qianfan-send/qianfanSend.routes'
 import { orderFinanceAlertRouter } from '../../modules/order-finance-alert/orderFinanceAlert.routes'
 import { accountingRouter } from '../../modules/accounting/accounting.routes'
+import { liveAnalysisRouter } from '../../modules/live-analysis/liveAnalysis.routes'
 import { getEffectivePortPlan } from '../../config/env'
 
 export const v1Router = Router()
@@ -57,6 +58,7 @@ v1Router.use('/system-discovery', systemDiscoveryRouter)
 v1Router.use('/qianfan-send', qianfanSendRouter)
 v1Router.use('/order-finance-alerts', orderFinanceAlertRouter)
 v1Router.use('/accounting', accountingRouter)
+v1Router.use('/live-analysis', liveAnalysisRouter)
 
 v1Router.post('/print/bracelet-tag', async (req, res) => {
   const { queryByCertNo } = await import('../../services/inventory-query.service')

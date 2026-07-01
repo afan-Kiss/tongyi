@@ -287,6 +287,47 @@ export const accountingApi = {
     ),
 }
 
+export const liveAnalysisApi = {
+  summary: (period = 'month', startDate = '', endDate = '') => {
+    const q = new URLSearchParams({ period })
+    if (startDate) q.set('startDate', startDate)
+    if (endDate) q.set('endDate', endDate)
+    return request<{ data: import('./types').LiveAnalysisSummaryView }>(`/live-analysis/summary?${q}`)
+  },
+  sessions: (params: Record<string, string | number>) => {
+    const q = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => q.set(k, String(v)))
+    return request<{
+      data: { items: import('./types').LiveSessionView[]; total: number; page: number; pageSize: number }
+    }>(`/live-analysis/sessions?${q}`)
+  },
+  session: (id: string) =>
+    request<{ data: import('./types').LiveSessionView }>(`/live-analysis/sessions/${encodeURIComponent(id)}`),
+  anchorRanking: (period = 'month') =>
+    request<{ data: { items: import('./types').AnchorRankingRowView[]; period: string } }>(
+      `/live-analysis/anchors/ranking?period=${period}`,
+    ),
+  refunds: (period = 'month') =>
+    request<{ data: { items: import('./types').RefundAnalysisRowView[]; totalRefund: number } }>(
+      `/live-analysis/refunds?period=${period}`,
+    ),
+  products: (period = 'month') =>
+    request<{ data: { items: import('./types').ProductAnalysisRowView[] } }>(
+      `/live-analysis/products?period=${period}`,
+    ),
+  suggestions: (period = 'month') =>
+    request<{ data: { items: import('./types').LiveSuggestionView[] } }>(
+      `/live-analysis/suggestions?period=${period}`,
+    ),
+  importBatches: () =>
+    request<{ data: { items: import('./types').LiveImportBatchView[] } }>('/live-analysis/import-batches'),
+  import: (body: { content?: string; filename?: string; format?: 'csv' | 'excel' }) =>
+    request<{ data: { batchId: string; imported: number; message: string }; message?: string }>(
+      '/live-analysis/import',
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+}
+
 export const platformApi = {
   agentStatus: () => request<{ data: import('./types').AgentOverview }>('/agent/status'),
   agentTasks: (limit = 50) => request<{ data: { tasks: import('./types').AgentTaskView[] } }>(`/agent/tasks?limit=${limit}`),
