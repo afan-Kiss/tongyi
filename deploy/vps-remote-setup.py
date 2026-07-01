@@ -90,28 +90,8 @@ def main() -> int:
     run(client, "systemctl status nginx --no-pager | head -20")
     run(client, "ss -tlnp | grep -E ':80|:443|:4725|:7000' || true")
 
-    # 写本机 frpc.toml
-    frpc_path = os.path.join(DEPLOY_DIR, "frpc.toml")
-    frpc_content = f"""# 自动生成 — 与 VPS frps 配对
-serverAddr = "{HOST}"
-serverPort = 7000
-
-auth.method = "token"
-auth.token = "{token}"
-
-[[proxies]]
-name = "jade-inventory-web"
-type = "tcp"
-localIP = "127.0.0.1"
-localPort = 4725
-remotePort = 4725
-"""
-    with open(frpc_path, "w", encoding="utf-8", newline="\n") as f:
-        f.write(frpc_content)
-    print(f"\n已写入 {frpc_path}")
-
     client.close()
-    print("\nVPS 配置完成。请在本机重启 start.bat 连接 frpc。")
+    print("\nVPS 配置完成。")
     print(f"外网地址: https://{DOMAIN}/inventory")
     return 0
 

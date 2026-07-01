@@ -194,8 +194,6 @@ echo 启动前请打开 Excel 库存表
 
 echo 本机: http://127.0.0.1:4725/inventory
 
-echo 外网: 配置 deploy\frpc.toml 后访问 http://你的VPS:4725
-
 echo.
 
 echo [提示] 关闭本窗口即停止全部服务

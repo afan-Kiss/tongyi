@@ -71,4 +71,3 @@ fi
 echo "[5/5] 完成"
 echo "frps: systemctl status frps"
 echo "nginx: systemctl status nginx"
-echo "请将相同 FRP_TOKEN 填入本机 deploy/frpc.toml"

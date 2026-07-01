@@ -9,7 +9,6 @@ apps/xiangyu/data/
 *.db-journal
 .env
 .env.local
-deploy/frpc.toml
 deploy/secrets.local
 deploy/.frp-token
 __pycache__/

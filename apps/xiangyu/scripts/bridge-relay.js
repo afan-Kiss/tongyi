@@ -26,7 +26,7 @@ const {
 const { triggerNativeSyncAfterSend, installNativeSyncBridge, parseSenderAppUid, buildSellerExtension } = require('./qianfan-native-sync');
 
 const PORT = Number(process.env.BRIDGE_PORT || 4727);
-const BRIDGE_VERSION = '2.1.0-ws-capture';
+const BRIDGE_VERSION = '2.2.0-ws-retry';
 const DEVTOOLS_HOST = process.env.DEVTOOLS_HOST || '127.0.0.1';
 
 function loadBridgeConfig() {
@@ -51,7 +51,8 @@ const QIANFAN_DATA_DIR =
   path.resolve(__dirname, '../../../千帆中转机器人/dist/win-unpacked/data');
 
 const WS_HOOK_SCRIPT = String.raw`(function(){
-  window.__qfImpaasSockets = (window.__qfImpaasSockets || []).filter(function(w){ return w && w.readyState === 1; });
+  function wsAlive(w) { return w && (w.readyState === 0 || w.readyState === 1); }
+  window.__qfImpaasSockets = (window.__qfImpaasSockets || []).filter(function(w){ return wsAlive(w); });
   window.__qfCapturedSessions = window.__qfCapturedSessions || {};
   window.__qfAckEvents = window.__qfAckEvents || [];
   function storeSession(appCid, recv, buyerUserId) {
@@ -205,11 +206,11 @@ const WS_HOOK_SCRIPT = String.raw`(function(){
   }
   function cleanupSockets() {
     window.__qfImpaasSockets = (window.__qfImpaasSockets || []).filter(function(w) {
-      return w && w.readyState === 1 && isQfImSocket(w.url);
+      return wsAlive(w) && isQfImSocket(w.url);
     });
   }
   function rememberSocket(ws) {
-    if (!ws || ws.readyState !== 1 || !isQfImSocket(ws.url)) return;
+    if (!ws || !wsAlive(ws) || !isQfImSocket(ws.url)) return;
     cleanupSockets();
     var list = window.__qfImpaasSockets;
     if (list.indexOf(ws) < 0) list.push(ws);
@@ -290,6 +291,111 @@ let cachedClient = null;
 let cachedShopTitle = '';
 const captureWatchClients = new Map();
 const sessionSniffer = new Map();
+const cdpWsTracker = new WeakMap();
+
+function isQfImSocketUrl(url) {
+  const u = String(url || '').toLowerCase();
+  if (!u.startsWith('ws://') && !u.startsWith('wss://')) return false;
+  if (/sockjs|webpack|hmr|hot-update|livereload|sentry|\/log|analytics|beacon|\/track|monitor|stats|ping\b|devtools|vite/i.test(u)) {
+    return false;
+  }
+  return (
+    u.includes('impaas') ||
+    u.includes('longlink') ||
+    u.includes('walle') ||
+    u.includes('edith') ||
+    u.includes('xiaohongshu') ||
+    u.includes('qianfan')
+  );
+}
+
+function rankSocketUrl(url) {
+  const u = String(url || '').toLowerCase();
+  if (u.includes('impaas')) return 50;
+  if (u.includes('longlink')) return 40;
+  if (u.includes('walle')) return 30;
+  if (u.includes('edith')) return 25;
+  if (u.includes('qianfan')) return 20;
+  if (u.includes('xiaohongshu')) return 15;
+  return 10;
+}
+
+function installCdpWsTracker(client) {
+  if (!client?.Network || client.__cdpWsTrackerInstalled) return;
+  client.__cdpWsTrackerInstalled = true;
+  const state = { sockets: new Map() };
+  cdpWsTracker.set(client, state);
+  client.Network.webSocketCreated(({ requestId, url }) => {
+    if (isQfImSocketUrl(url)) {
+      state.sockets.set(requestId, { url: String(url || ''), at: Date.now() });
+    }
+  });
+  client.Network.webSocketClosed(({ requestId }) => {
+    state.sockets.delete(requestId);
+  });
+}
+
+function getCdpImSockets(client) {
+  const state = cdpWsTracker.get(client);
+  if (!state) return [];
+  return [...state.sockets.entries()]
+    .map(([requestId, meta]) => ({ requestId, url: meta.url, score: rankSocketUrl(meta.url) }))
+    .sort((a, b) => b.score - a.score);
+}
+
+function pickCdpImSocket(client, appCid = '') {
+  const list = getCdpImSockets(client);
+  if (!list.length) return null;
+  return list[0];
+}
+
+async function trySendViaPageHook(client, payloadStr, appCid) {
+  const { Runtime } = client;
+  const expr = `(function(){
+    var payloadStr = ${JSON.stringify(payloadStr)};
+    var appCid = ${JSON.stringify(appCid)};
+    var pick = window.__qfPickSendSocket && window.__qfPickSendSocket(appCid);
+    var list = window.__qfImpaasSockets || [];
+    var ws = null;
+    if (pick && pick.ok) {
+      ws = list.find(function(w){ return w && w.readyState === 1 && String(w.url||'') === pick.url; });
+    }
+    if (!ws) ws = list.find(function(w){ return w && w.readyState === 1; });
+    if (!ws) return { ok: false, reason: 'no_ws', count: list.length };
+    ws.send(payloadStr);
+    return { ok: true, url: String(ws.url || ''), count: list.length, via: 'page' };
+  })()`;
+  const result = await Runtime.evaluate({ expression: expr, returnByValue: true });
+  return result?.result?.value || null;
+}
+
+async function trySendViaCdp(client, payloadStr) {
+  const picked = pickCdpImSocket(client);
+  if (!picked?.requestId) return null;
+  try {
+    await client.Network.sendWebSocketFrame({
+      requestId: picked.requestId,
+      opcode: 1,
+      data: payloadStr,
+    });
+    return { ok: true, url: picked.url, via: 'cdp' };
+  } catch {
+    return null;
+  }
+}
+
+async function waitForImWebSocket(client, options = {}) {
+  const { timeoutMs = 15000 } = options;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const diag = await getWsDiagnostics(client);
+    if (diag.socketCount > 0) return diag;
+    if (getCdpImSockets(client).length > 0) return diag;
+    await injectWsHook(client);
+    await sleep(350);
+  }
+  return getWsDiagnostics(client);
+}
 
 function isCdpTransportError(err) {
   const msg = String(err?.message || err || '');
@@ -1397,6 +1503,7 @@ async function connectCaptureWatcher(pageInfo) {
   await Runtime.enable();
   await Network.enable();
   await injectWsHook(client);
+  installCdpWsTracker(client);
   installSessionSniffer(client, shopTitle);
   installNetworkCapture(client, { dataDir: QIANFAN_DATA_DIR, shopTitle });
 
@@ -1464,6 +1571,7 @@ async function getCdpClient(shopTitle, options = {}) {
   await Runtime.enable();
   await Network.enable();
   await injectWsHook(client);
+  installCdpWsTracker(client);
   installSessionSniffer(client, shopKey);
   installNetworkCapture(client, { dataDir: QIANFAN_DATA_DIR, shopTitle: shopKey });
 
@@ -1705,7 +1813,8 @@ async function deliverTextMessage(client, sendSession, { text, seq, shopTitle, b
 async function handleSendText(body) {
   const { shopTitle = '祥钰珠宝', buyerNick = '', orderId = '' } = body || {};
   const session = enrichSendSession(body, await resolveSessionForSend(body), 'text');
-  const client = await getCdpClient(session.shopTitle || shopTitle, { force: true });
+  const client = await getCdpClient(session.shopTitle || shopTitle, { force: false });
+  await waitForImWebSocket(client, { timeoutMs: 8000 });
   const seq = await allocSendSeq(client);
   const receipt = await deliverTextMessage(client, session, {
     text: body.text,
@@ -1939,34 +2048,30 @@ function buildVideoSendPayload({
   };
 }
 
-async function sendPayloadViaWs(client, payloadStr, appCid) {
-  const { Runtime } = client;
-  const expr = `(function(){
-    var payloadStr = ${JSON.stringify(payloadStr)};
-    var appCid = ${JSON.stringify(appCid)};
-    var pick = window.__qfPickSendSocket && window.__qfPickSendSocket(appCid);
-    var list = window.__qfImpaasSockets || [];
-    var ws = null;
-    if (pick && pick.ok) {
-      ws = list.find(function(w){ return w && w.readyState === 1 && String(w.url||'') === pick.url; });
-    }
-    if (!ws) ws = list.find(function(w){ return w && w.readyState === 1; });
-    if (!ws) return { ok: false, reason: 'no_ws', count: list.length };
-    ws.send(payloadStr);
-    return { ok: true, url: String(ws.url || ''), count: list.length };
-  })()`;
-  const result = await Runtime.evaluate({ expression: expr, returnByValue: true });
-  const value = result?.result?.value;
-  if (!value?.ok) {
-    const diag = await getWsDiagnostics(client);
-    if (diag.hooked && diag.socketCount === 0) {
-      throw new Error(
-        'DevTools 已连接，hook 已注入，但当前页面还没有捕获到 IM WebSocket。可能是 hook 注入晚于千帆 IM WebSocket 创建，请刷新或重开千帆工作台后再试。',
-      );
-    }
-    throw new Error(`未找到可用的 IM WebSocket（当前 ${value?.count ?? diag.socketCount ?? 0} 条），请确认千帆客服工作台已打开并保持登录`);
+async function sendPayloadViaWs(client, payloadStr, appCid, options = {}) {
+  const { timeoutMs = 15000, retryIntervalMs = 400 } = options;
+  const deadline = Date.now() + timeoutMs;
+  let lastCount = 0;
+
+  while (Date.now() < deadline) {
+    const pageResult = await trySendViaPageHook(client, payloadStr, appCid);
+    if (pageResult?.ok) return pageResult;
+    lastCount = pageResult?.count ?? lastCount;
+
+    const cdpResult = await trySendViaCdp(client, payloadStr);
+    if (cdpResult?.ok) return cdpResult;
+
+    await injectWsHook(client);
+    await sleep(retryIntervalMs);
   }
-  return value;
+
+  const diag = await getWsDiagnostics(client);
+  if (diag.hooked && diag.socketCount === 0 && getCdpImSockets(client).length === 0) {
+    throw new Error(
+      '千帆 IM 连接尚未就绪（切换买家后 WebSocket 可能正在重连）。请稍等几秒后重试，或刷新千帆工作台。',
+    );
+  }
+  throw new Error(`未找到可用的 IM WebSocket（当前 ${lastCount || diag.socketCount || 0} 条），请确认千帆客服工作台已打开并保持登录`);
 }
 
 const ACK_TIMEOUT_MS = 15000;
@@ -2385,6 +2490,10 @@ async function resolveSessionForSend(body) {
     source: session.source || 'eva_open',
     appCid: `${session.appCid.slice(0, 36)}…`,
   });
+
+  const openClient = await getCdpClient(session.shopTitle || shopTitle, { force: false });
+  await waitForImWebSocket(openClient, { timeoutMs: 12000 });
+
   return session;
 }
 
@@ -2440,7 +2549,8 @@ async function handleSend(body) {
     appCid: session.appCid ? `${session.appCid.slice(0, 30)}…` : '',
     withPreface: Boolean(sendPreface && String(prefaceText || '').trim()),
   });
-  const client = await getCdpClient(session.shopTitle || shopTitle, { force: true });
+  const client = await getCdpClient(session.shopTitle || shopTitle, { force: false });
+  await waitForImWebSocket(client, { timeoutMs: 8000 });
 
   let prefaceReceipt = null;
   const safePreface = String(prefaceText || '').trim();
@@ -2584,7 +2694,8 @@ async function handleSendVideo(body) {
   }
 
   const session = enrichSendSession(body, await resolveSessionForSend(body), 'video');
-  const client = await getCdpClient(session.shopTitle || shopTitle, { force: true });
+  const client = await getCdpClient(session.shopTitle || shopTitle, { force: false });
+  await waitForImWebSocket(client, { timeoutMs: 8000 });
   const videoSeq = await allocSendSeq(client);
 
   const meta = normalizeVideoMeta(videoMeta);
@@ -2731,12 +2842,12 @@ const server = http.createServer(async (req, res) => {
         try {
           const client = await getCdpClient(shopTitle, { force: false });
           const diag = await getWsDiagnostics(client);
-          const ok = diag.hooked === true && diag.socketCount > 0;
+          const ok = diag.hooked === true && (diag.socketCount > 0 || getCdpImSockets(client).length > 0);
           const message =
             ok
               ? 'IM WebSocket 已捕获'
               : diag.hooked && diag.socketCount === 0
-                ? 'DevTools 已连接，hook 已注入，但当前页面还没有捕获到 IM WebSocket。可能是 hook 注入晚于千帆 IM WebSocket 创建，请刷新或重开千帆工作台后再试。'
+                ? '千帆 IM 连接尚未就绪，切换买家后 WebSocket 可能正在重连，请稍等后重试'
                 : '千帆页面 hook 未注入或未连接';
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ok, message, ...diag }));
@@ -2764,7 +2875,7 @@ const server = http.createServer(async (req, res) => {
         try {
           const client = await connectCaptureWatcher(shop);
           const diag = await getWsDiagnostics(client);
-          const ok = diag.hooked === true && diag.socketCount > 0;
+          const ok = diag.hooked === true && (diag.socketCount > 0 || getCdpImSockets(client).length > 0);
           results.push({
             shopTitle: shop.shopTitle,
             ok,
@@ -2772,7 +2883,7 @@ const server = http.createServer(async (req, res) => {
               ok
                 ? 'IM WebSocket 已捕获'
                 : diag.hooked && diag.socketCount === 0
-                  ? 'DevTools 已连接，hook 已注入，但当前页面还没有捕获到 IM WebSocket。可能是 hook 注入晚于千帆 IM WebSocket 创建，请刷新或重开千帆工作台后再试。'
+                  ? '千帆 IM 连接尚未就绪，切换买家后 WebSocket 可能正在重连，请稍等后重试'
                   : '千帆页面 hook 未注入或未连接',
             ...diag,
           });

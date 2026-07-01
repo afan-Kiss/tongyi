@@ -27,6 +27,9 @@ export const DEFAULT_PORTS = {
 
   printAgent: 4729,
 
+  /** 本地 Worker / 记账系统读取接口（仅 127.0.0.1） */
+  scannerApi: 7789,
+
   /** 手机拍照专用 HTTPS（getUserMedia 需安全上下文） */
   mobileHttps: 4730,
 
@@ -157,6 +160,15 @@ export function getPrintAgentUrl(): string {
 
   return process.env.PRINT_AGENT_URL || `http://127.0.0.1:${DEFAULT_PORTS.printAgent}`
 
+}
+
+export function getScannerApiPort(): number {
+  return parsePort(process.env.SCANNER_API_PORT, DEFAULT_PORTS.scannerApi, 'SCANNER_API_PORT')
+}
+
+/** 默认开启；设为 false 可关闭本地 Scanner API */
+export function isScannerApiEnabled(): boolean {
+  return parseBool(process.env.SCANNER_API_ENABLED, true, 'SCANNER_API_ENABLED')
 }
 
 

@@ -3,8 +3,6 @@ config.json
 data/
 tools/ffmpeg/
 deploy/.frp-token
-deploy/frpc.toml
-deploy/frpc/
 .cursor/
 *.log
 .DS_Store

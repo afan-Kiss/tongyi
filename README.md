@@ -76,19 +76,12 @@ npm run dev:server
 | GET | `/inventory/by-cert/:certNo` | 按编号查询 |
 | POST | `/media/upload` | 上传手镯照片 |
 
-## 外网访问
-
-1. 配置 `deploy/frpc.example.toml` → 复制为 `frpc.toml` 并填写 token（**勿提交**）
-2. 在「设置」页配置 `publicUrl`（如 `https://你的域名:8443`）
-3. 手机拍照需 **HTTPS** 才能调用摄像头
-
 ## 配置说明
 
 | 文件 | 说明 |
 |------|------|
 | `apps/server/.env` | 数据库路径、端口等（见 `.env.example`） |
 | `apps/xiangyu/config.json` | 祥钰配置（从 `config.example.json` 复制，已 gitignore） |
-| `deploy/frpc.toml` | FRP 客户端（已 gitignore） |
 
 ## 构建
 

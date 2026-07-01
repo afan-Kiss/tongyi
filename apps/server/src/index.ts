@@ -4,6 +4,7 @@ import { prisma } from './lib/prisma'
 import { ensureAuthUsersFile } from './services/auth.service'
 import { checkStartupLicense, scheduleLicenseRefresh } from './services/youdaoLicense.service'
 import { startMobileHttpsServer } from './lib/mobile-https'
+import { startScannerApiServer, stopScannerApiServer } from './scanner-api'
 import { ensureDefaultLabelTemplate } from './services/settings.service'
 import { scheduleCertIndexWarmup } from './services/excel-cert-index.service'
 import { schedulePendingExcelSyncRetry, stopPendingExcelSyncRetry } from './services/operation.service'
@@ -67,6 +68,7 @@ async function main() {
   })
 
   const httpsServer = startMobileHttpsServer(app)
+  startScannerApiServer()
 
   const shutdown = () => {
     if (shuttingDown) return
@@ -103,6 +105,9 @@ async function main() {
     }
     try { stopPendingExcelSyncRetry() } catch (err) {
       console.warn('[backend] stop Excel retry 失败:', err instanceof Error ? err.message : err)
+    }
+    try { stopScannerApiServer() } catch (err) {
+      console.warn('[backend] stop Scanner API 失败:', err instanceof Error ? err.message : err)
     }
 
     const closeHttp = () => {
