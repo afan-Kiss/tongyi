@@ -246,6 +246,25 @@ export const photoRelayApi = {
     ),
 }
 
+export const platformApi = {
+  agentStatus: () => request<{ data: import('./types').AgentOverview }>('/agent/status'),
+  agentTasks: (limit = 50) => request<{ data: { tasks: import('./types').AgentTaskView[] } }>(`/agent/tasks?limit=${limit}`),
+  retryAgentTask: (id: string) => request(`/agent/tasks/${encodeURIComponent(id)}/retry`, { method: 'POST' }),
+  qianfanStatus: () => request<{ data: import('./types').QianfanRelaySnapshot }>('/qianfan-relay/status'),
+  qianfanDiagnose: () => request<{ data: import('./types').QianfanDiagnoseResult }>('/qianfan-relay/diagnose', { method: 'POST' }),
+  qianfanStart: () => request<{ data: { queued: boolean; message: string }; message?: string }>('/qianfan-relay/start', { method: 'POST' }),
+  qianfanStop: () => request<{ data: { queued: boolean; message: string }; message?: string }>('/qianfan-relay/stop', { method: 'POST' }),
+  qianfanRestart: () => request<{ data: { queued: boolean; message: string }; message?: string }>('/qianfan-relay/restart', { method: 'POST' }),
+  qianfanMessages: (limit = 20) => request<{ data: { recent: Record<string, unknown>[]; pending: Record<string, unknown>[] } }>(`/qianfan-relay/messages?limit=${limit}`),
+  qianfanNotifications: (limit = 20) => request<{ data: { items: Record<string, unknown>[] } }>(`/qianfan-relay/notifications?limit=${limit}`),
+  qianfanSendText: (body: { buyerNick: string; text: string; shopName?: string; appCid?: string }) =>
+    request<{ data: { queued: boolean; message: string }; message?: string }>('/qianfan-relay/send-text', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  portalOverview: () => request<{ data: import('./types').PortalOverview }>('/portal/overview'),
+}
+
 export const auditApi = {
   logs: (params: {
     page?: number

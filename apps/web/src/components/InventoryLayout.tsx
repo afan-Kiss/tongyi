@@ -1,6 +1,6 @@
 import React from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
-import { LayoutDashboard, Package, ScanLine, ScrollText, Settings, Tag } from 'lucide-react'
+import { LayoutDashboard, Package, ScanLine, ScrollText, Settings, Tag, Headphones, Calculator, BarChart3, MonitorSmartphone, Activity } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { isAuditViewer } from '@/lib/userActivity'
 
@@ -9,6 +9,11 @@ const BASE_NAV = [
   { to: '/inventory/scan', icon: ScanLine, label: '扫码', mobileLabel: '扫码' },
   { to: '/inventory/inbound?type=register', icon: Tag, label: '标签入库', mobileLabel: '入库' },
   { to: '/inventory/stock', icon: Package, label: '库存', mobileLabel: '库存' },
+  { to: '/inventory/qianfan', icon: Headphones, label: '千帆客服', mobileLabel: '千帆' },
+  { to: '/inventory/accounting', icon: Calculator, label: '经营记账', mobileLabel: '记账' },
+  { to: '/inventory/live-analysis', icon: BarChart3, label: '主播分析', mobileLabel: '直播' },
+  { to: '/inventory/agents', icon: MonitorSmartphone, label: '本地助手', mobileLabel: '助手' },
+  { to: '/inventory/system-status', icon: Activity, label: '系统状态', mobileLabel: '状态' },
   { to: '/inventory/settings', icon: Settings, label: '设置', mobileLabel: '设置' },
 ] as const
 

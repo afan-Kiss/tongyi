@@ -267,3 +267,81 @@ export interface CertIndexStatus {
   workbook: string | null
   message: string
 }
+
+export interface AgentMachineView {
+  id: string
+  name: string
+  machineCode: string
+  status: string
+  statusLabel: string
+  lastSeenAt: string | null
+  version: string | null
+  ip: string | null
+  capabilities: string[]
+  online: boolean
+}
+
+export interface AgentTaskView {
+  id: string
+  machineId: string | null
+  type: string
+  typeLabel: string
+  payload: Record<string, unknown>
+  status: string
+  statusLabel: string
+  result: Record<string, unknown> | null
+  errorMessage: string | null
+  retryCount: number
+  maxRetries: number
+  createdAt: string
+  startedAt: string | null
+  finishedAt: string | null
+}
+
+export interface AgentOverview {
+  machines: AgentMachineView[]
+  onlineCount: number
+  totalCount: number
+  hasOnlineAgent: boolean
+  summary: string
+}
+
+export interface QianfanRelaySnapshot {
+  rootPath: string
+  rootExists: boolean
+  running: boolean
+  qianfanReady: boolean
+  listenerReady: boolean
+  wechatReady: boolean
+  devtoolsPort: number
+  devtoolsReachable: boolean
+  localApiPort: number
+  attachedShopCount: number
+  expectedShopCount: number
+  pendingCount: number
+  plainSummary: string
+  shops: { name: string; appCid?: string; ready?: boolean }[]
+  lastBuyerMessageAt?: string | null
+  lastWechatNotifyAt?: string | null
+  lastError?: string | null
+}
+
+export interface QianfanDiagnoseResult {
+  ok: boolean
+  summary: string
+  items: { level: string; title: string; message: string; suggestion?: string }[]
+}
+
+export interface PortalOverview {
+  inventory: {
+    degraded: boolean
+    degradedReasons?: string[]
+    excelBridge?: { online: boolean; message: string }
+    printAgent?: { online: boolean; message: string }
+  }
+  qianfan: QianfanRelaySnapshot | null
+  agent: AgentOverview
+  accounting: { url: string; online: boolean; message: string; plainMessage: string; proxyPath: string }
+  liveAnalysis: { url: string; online: boolean; message: string; plainMessage: string; proxyPath: string }
+  recentErrors: { module: string; message: string; at: string }[]
+}

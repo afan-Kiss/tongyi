@@ -28,6 +28,16 @@ import { LoginPage } from '@/pages/LoginPage'
 
 import { UserActivityLogPage } from '@/pages/UserActivityLogPage'
 
+import { QianfanRelayPage } from '@/pages/QianfanRelayPage'
+
+import { AgentCenterPage } from '@/pages/AgentCenterPage'
+
+import { SystemStatusPage } from '@/pages/SystemStatusPage'
+
+import { AccountingPortalPage } from '@/pages/AccountingPortalPage'
+
+import { LiveAnalysisPortalPage } from '@/pages/LiveAnalysisPortalPage'
+
 import { RequireFanfan } from '@/components/RequireFanfan'
 
 
@@ -73,6 +83,12 @@ const AuthenticatedRoutes: React.FC = () => (
             <Route path="inbound" element={<InboundFormPage />} />
 
             <Route path="settings" element={<SettingsPage />} />
+
+            <Route path="qianfan" element={<QianfanRelayPage />} />
+            <Route path="accounting" element={<AccountingPortalPage />} />
+            <Route path="live-analysis" element={<LiveAnalysisPortalPage />} />
+            <Route path="agents" element={<AgentCenterPage />} />
+            <Route path="system-status" element={<SystemStatusPage />} />
 
             <Route element={<RequireFanfan />}>
               <Route path="audit" element={<UserActivityLogPage />} />

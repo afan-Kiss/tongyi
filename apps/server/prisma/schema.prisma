@@ -116,3 +116,113 @@ model UserActivityLog {
   @@index([username])
   @@index([category])
 }
+
+/// 本地助手注册机器
+model AgentMachine {
+  id           String      @id @default(uuid())
+  name         String
+  machineCode  String      @unique
+  status       String      @default("offline")
+  lastSeenAt   DateTime?
+  version      String?
+  ip           String?
+  capabilities String      @default("[]")
+  tokenHash    String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  tasks        AgentTask[]
+
+  @@index([status])
+  @@index([lastSeenAt])
+}
+
+/// 本地助手任务队列
+model AgentTask {
+  id           String       @id @default(uuid())
+  machineId    String?
+  machine      AgentMachine? @relation(fields: [machineId], references: [id], onDelete: SetNull)
+  type         String
+  payloadJson  String       @default("{}")
+  status       String       @default("pending")
+  resultJson   String?
+  errorMessage String?
+  retryCount   Int          @default(0)
+  maxRetries   Int          @default(3)
+  createdAt    DateTime     @default(now())
+  startedAt    DateTime?
+  finishedAt   DateTime?
+
+  @@index([status])
+  @@index([machineId])
+  @@index([createdAt])
+}
+
+/// 各子模块运行状态快照
+model SystemModuleStatus {
+  id         String   @id @default(uuid())
+  moduleKey  String   @unique
+  moduleName String
+  status     String   @default("unknown")
+  message    String?
+  lastOkAt   DateTime?
+  lastErrorAt DateTime?
+  detailJson String   @default("{}")
+  updatedAt  DateTime @updatedAt
+}
+
+/// 千帆中转状态快照（由本地助手或文件读取同步）
+model QianfanRelayStatus {
+  id                  String   @id @default("singleton")
+  running             Boolean  @default(false)
+  qianfanReady        Boolean  @default(false)
+  listenerReady       Boolean  @default(false)
+  wechatReady         Boolean  @default(false)
+  attachedShopCount   Int      @default(0)
+  expectedShopCount   Int      @default(4)
+  lastBuyerMessageAt  DateTime?
+  lastWechatNotifyAt  DateTime?
+  lastWsFrameAt       DateTime?
+  lastError           String?
+  detailJson          String   @default("{}")
+  updatedAt           DateTime @updatedAt
+}
+
+/// 千帆买家消息 / 通知记录
+model QianfanRelayMessage {
+  id                   String    @id @default(uuid())
+  replyId              Int?
+  shopName             String?
+  buyerNick            String?
+  appCid               String?
+  receiverAppUidsJson  String    @default("[]")
+  text                 String?
+  source               String?
+  notifyStatus         String?
+  replyStatus          String?
+  errorMessage         String?
+  createdAt            DateTime  @default(now())
+  notifiedAt           DateTime?
+  repliedAt            DateTime?
+
+  @@index([createdAt])
+  @@index([buyerNick])
+  @@index([notifyStatus])
+}
+
+/// 统一上传媒体记录
+model UploadedMedia {
+  id         String   @id @default(uuid())
+  bizType    String?
+  bizId      String?
+  fileName   String
+  mimeType   String?
+  url        String?
+  localPath  String?
+  size       Int      @default(0)
+  sha256     String?
+  uploadedBy String?
+  createdAt  DateTime @default(now())
+
+  @@index([bizType, bizId])
+  @@index([createdAt])
+}

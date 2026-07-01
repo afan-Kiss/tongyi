@@ -11,6 +11,7 @@ export {
   healthApi,
   photoRelayApi,
   auditApi,
+  platformApi,
 } from './endpoints'
 
 import {
@@ -24,6 +25,7 @@ import {
   healthApi,
   photoRelayApi,
   auditApi,
+  platformApi,
 } from './endpoints'
 
 /** 兼容旧代码的统一入口 */

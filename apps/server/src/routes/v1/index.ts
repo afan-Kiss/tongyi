@@ -10,6 +10,9 @@ import { auditIngestRouter, auditRouter } from './audit.routes'
 import { getMobileCameraNetworkInfo } from '../../lib/mobile-camera-url'
 import { auditApiLogMiddleware } from '../../middleware/auditApiLog'
 import { sendErr } from '../../utils/api-response'
+import { agentRouter } from '../../modules/agent/agent.routes'
+import { qianfanRelayRouter } from '../../modules/qianfan-relay/qianfanRelay.routes'
+import { portalRouter } from '../../modules/portal/portal.routes'
 
 export const v1Router = Router()
 
@@ -34,6 +37,10 @@ v1Router.use('/detail', detailRouter)
 v1Router.use('/photo-relay', photoRelayRouter)
 v1Router.use('/audit', auditIngestRouter)
 v1Router.use('/audit', auditRouter)
+
+v1Router.use('/agent', agentRouter)
+v1Router.use('/qianfan-relay', qianfanRelayRouter)
+v1Router.use('/portal', portalRouter)
 
 v1Router.post('/print/bracelet-tag', async (req, res) => {
   const { queryByCertNo } = await import('../../services/inventory-query.service')

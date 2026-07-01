@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from 'express'
 import { getCachedLicense } from '../services/youdaoLicense.service'
 
-const PUBLIC_V1_PREFIXES = ['/health', '/auth', '/photo-relay']
+const PUBLIC_V1_PREFIXES = ['/health', '/auth', '/photo-relay', '/agent/register']
 
 export function isPublicV1Path(path: string, originalUrl?: string): boolean {
   const paths = [path, originalUrl?.split('?')[0] || ''].filter(Boolean)
@@ -41,6 +41,15 @@ function rejectSessionRequired(req: Request, res: Response, forXiangyu = false):
 
 export function requireApiAuth(req: Request, res: Response, next: NextFunction): void {
   if (isPublicV1Path(req.path, req.originalUrl)) {
+    next()
+    return
+  }
+  const original = req.originalUrl?.split('?')[0] || ''
+  const agentSelfAuth =
+    original.startsWith('/api/v1/agent/heartbeat') ||
+    original.startsWith('/api/v1/agent/tasks/pull') ||
+    /\/api\/v1\/agent\/tasks\/[^/]+\/result/.test(original)
+  if (agentSelfAuth) {
     next()
     return
   }

@@ -6,6 +6,7 @@ import { v1Router } from './routes/v1'
 import { authRouter } from './routes/v1/auth.routes'
 import { mountWebStatic } from './middleware/staticWeb'
 import { mountXiangyuProxy } from './middleware/xiangyuProxy'
+import { mountPortalProxies } from './middleware/portalProxy'
 import { requireApiAuth } from './middleware/requireAuth'
 import { getSessionSecret } from './services/auth.service'
 import { FileSessionStore } from './lib/fileSessionStore'
@@ -42,6 +43,7 @@ export function createApp() {
   })
 
   mountXiangyuProxy(app)
+  mountPortalProxies(app)
 
   app.use('/api', (_req, res) => {
     res.status(404).json({ ok: false, message: '请使用 /api/v1/* 接口' })

@@ -320,3 +320,72 @@ export function getDefaultCertPrefix(): string {
 
 
 export const DEFAULT_OUTBOUND_REMARK = '小红书发出'
+
+/** 千帆中转机器人根目录 */
+export function getQianfanRelayRoot(): string {
+  const custom = process.env.QIANFAN_RELAY_ROOT?.trim()
+  if (custom) return path.resolve(custom)
+  return path.resolve(MONOREPO_ROOT, '../千帆中转机器人')
+}
+
+/** 千帆 data 目录（优先打包目录） */
+export function getQianfanRelayDataDir(): string {
+  const custom = process.env.QIANFAN_RELAY_DATA_DIR?.trim()
+  if (custom) return path.resolve(custom)
+  const root = getQianfanRelayRoot()
+  const candidates = [
+    path.join(root, 'dist', 'win-unpacked', 'data'),
+    path.join(root, 'data'),
+  ]
+  for (const dir of candidates) {
+    if (fs.existsSync(dir)) return dir
+  }
+  return candidates[0]
+}
+
+/** 千帆 logs 目录 */
+export function getQianfanRelayLogsDir(): string {
+  const custom = process.env.QIANFAN_RELAY_LOGS_DIR?.trim()
+  if (custom) return path.resolve(custom)
+  const root = getQianfanRelayRoot()
+  const candidates = [
+    path.join(root, 'dist', 'win-unpacked', 'logs'),
+    path.join(root, 'logs'),
+  ]
+  for (const dir of candidates) {
+    if (fs.existsSync(dir)) return dir
+  }
+  return candidates[0]
+}
+
+export function getQianfanLocalApiPort(): number {
+  return parsePort(process.env.QIANFAN_LOCAL_API_PORT, 9323, 'QIANFAN_LOCAL_API_PORT')
+}
+
+export function getQianfanLocalApiUrl(): string {
+  return process.env.QIANFAN_LOCAL_API_URL?.trim() || `http://127.0.0.1:${getQianfanLocalApiPort()}`
+}
+
+/** 本地助手离线判定阈值（毫秒） */
+export function getAgentOfflineThresholdMs(): number {
+  const v = Number(process.env.AGENT_OFFLINE_THRESHOLD_MS || 15000)
+  return Number.isFinite(v) && v > 3000 ? v : 15000
+}
+
+/** 记账系统 Web 地址 */
+export function getJizhangWebUrl(): string {
+  return (process.env.JIZHANG_WEB_URL || '').trim()
+}
+
+/** 主播分析 Web 地址 */
+export function getZhuboAnalysisWebUrl(): string {
+  return (process.env.ZHUBO_ANALYSIS_WEB_URL || '').trim()
+}
+
+export function isQianfanRelayRootAvailable(): boolean {
+  try {
+    return fs.existsSync(getQianfanRelayRoot())
+  } catch {
+    return false
+  }
+}
