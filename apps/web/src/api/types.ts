@@ -332,6 +332,32 @@ export interface QianfanDiagnoseResult {
   items: { level: string; title: string; message: string; suggestion?: string }[]
 }
 
+export interface QianfanSendJobView {
+  id: string
+  taskId: string | null
+  messageType: 'text' | 'image'
+  shopTitle: string
+  buyerNick: string
+  status: string
+  statusLabel: string
+  plainError?: string | null
+  isSent: boolean
+  statusFlow: { label: string; done: boolean; active: boolean; failed?: boolean }[]
+  createdAt: string
+  sentAt?: string | null
+}
+
+export interface FinanceAlertView {
+  id: string
+  type: 'cashback' | 'expense' | 'refund' | 'note'
+  typeLabel: string
+  amount?: number | null
+  title?: string | null
+  message?: string | null
+  plainSummary: string
+  status: string
+}
+
 export interface PortalOverview {
   inventory: {
     degraded: boolean

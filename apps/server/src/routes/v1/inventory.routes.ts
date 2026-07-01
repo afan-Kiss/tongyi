@@ -9,6 +9,7 @@ import {
   queryPrefixCounts,
 } from '../../services/inventory-query.service'
 import { updateBraceletByCert } from '../../services/bracelet-update.service'
+import { findAlertsForScanResult } from '../../modules/order-finance-alert/orderFinanceAlert.service'
 import { sendErr, sendOk } from '../../utils/api-response'
 
 export const inventoryRouter = Router()
@@ -68,11 +69,21 @@ inventoryRouter.get('/by-scan/:code', async (req, res) => {
   if (!items.length) {
     return sendErr(res, `未找到编号或条形码 ${req.params.code}（系统与 Excel 均无匹配）`, 404)
   }
+
+  const primary = items[0]
+  const finance = await findAlertsForScanResult({
+    orderNo: primary.orderNo,
+    certNo: primary.certNo,
+    braceletId: primary.id,
+  })
+
   sendOk(res, {
     items,
     importedFromExcel,
     excelSource,
     needsPhoto,
+    financeAlerts: finance.alerts,
+    financeWarning: finance.warning,
   })
 })
 

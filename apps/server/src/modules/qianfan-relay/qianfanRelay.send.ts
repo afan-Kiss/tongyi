@@ -1,8 +1,5 @@
-import {
-  createQianfanControlTask,
-  createQianfanSendImageTask,
-  createQianfanSendTextTask,
-} from '../agent/agent-task.service'
+import { createTextSendJob, createImageSendJob } from '../qianfan-send/qianfanSend.service'
+import { createQianfanControlTask } from '../agent/agent-task.service'
 import { getAgentOverview } from '../agent/agent.service'
 
 export async function enqueueQianfanStart(machineId?: string | null) {
@@ -48,39 +45,65 @@ export async function enqueueQianfanRestart(machineId?: string | null) {
 }
 
 export async function enqueueQianfanSendText(payload: {
+  shopTitle?: string
   shopName?: string
   buyerNick: string
   appCid?: string
   text: string
   receiverAppUids?: string[]
+  replyId?: number
+  source?: string
 }) {
-  const agent = await getAgentOverview()
-  if (!agent.hasOnlineAgent) {
+  try {
+    const job = await createTextSendJob({
+      source: (payload.source as 'manual') || 'manual',
+      shopTitle: payload.shopTitle || payload.shopName || '',
+      buyerNick: payload.buyerNick,
+      appCid: payload.appCid || '',
+      receiverAppUids: payload.receiverAppUids || [],
+      replyId: payload.replyId,
+      text: payload.text,
+    })
+    return { queued: true, message: '已创建文字发送任务', task: { id: job.taskId }, job }
+  } catch (err) {
     return {
       queued: false,
-      message: '本地助手离线，无法发送。千帆发送必须在本地助手执行。',
+      message: err instanceof Error ? err.message : '创建发送任务失败',
       task: null,
+      job: null,
     }
   }
-  const task = await createQianfanSendTextTask(payload)
-  return { queued: true, message: '已创建发送文字任务', task }
 }
 
 export async function enqueueQianfanSendImage(payload: {
+  shopTitle?: string
   shopName?: string
   buyerNick: string
   appCid?: string
-  imagePath: string
+  imagePath?: string
+  imageLocalPath?: string
+  imageUrl?: string
   receiverAppUids?: string[]
+  replyId?: number
 }) {
-  const agent = await getAgentOverview()
-  if (!agent.hasOnlineAgent) {
+  try {
+    const job = await createImageSendJob({
+      source: 'manual',
+      shopTitle: payload.shopTitle || payload.shopName || '',
+      buyerNick: payload.buyerNick,
+      appCid: payload.appCid || '',
+      receiverAppUids: payload.receiverAppUids || [],
+      replyId: payload.replyId,
+      imageLocalPath: payload.imageLocalPath || payload.imagePath,
+      imageUrl: payload.imageUrl,
+    })
+    return { queued: true, message: '已创建图片发送任务', task: { id: job.taskId }, job }
+  } catch (err) {
     return {
       queued: false,
-      message: '本地助手离线，无法发送图片。',
+      message: err instanceof Error ? err.message : '创建发送任务失败',
       task: null,
+      job: null,
     }
   }
-  const task = await createQianfanSendImageTask(payload)
-  return { queued: true, message: '已创建发送图片任务', task }
 }

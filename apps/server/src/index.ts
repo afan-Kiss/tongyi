@@ -1,4 +1,4 @@
-import { loadEnv, getPort, getDataDir, getMobileHttpsPort } from './config/env'
+import { loadEnv, getPort, getDataDir, getMobileHttpsPort, initPortPlan } from './config/env'
 import { createApp } from './app'
 import { prisma } from './lib/prisma'
 import { ensureAuthUsersFile } from './services/auth.service'
@@ -25,11 +25,19 @@ getDataDir()
 registerProcessCrashHandlers()
 appendBackendLog('startup', 'backend 启动')
 
-const port = getPort()
-
-let shuttingDown = false
-
 async function main() {
+  try {
+    const plan = await initPortPlan()
+    for (const w of plan.warnings) console.warn(`[port-planner] ${w}`)
+    console.log(`[port-planner] 端口组 ${plan.basePort} (${plan.source}) → http://127.0.0.1:${plan.ports.main}/inventory`)
+  } catch {
+    console.error('[port-planner] 没有可用端口，启动中止。Windows 本机会自动尝试 1312/1412；也可设置 TONGYI_PORT_BASE。')
+    process.exit(2)
+  }
+
+  const port = getPort()
+
+  let shuttingDown = false
   await prisma.$connect()
 
   ensureAuthUsersFile()

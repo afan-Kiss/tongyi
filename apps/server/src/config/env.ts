@@ -13,42 +13,15 @@ export const MONOREPO_ROOT = path.resolve(SERVER_ROOT, '../..')
 
 
 
-/** 统一端口规划（1212 起，统一经营台专用端口段） */
+import {
+  buildPortsFromBase,
+  getEffectivePortPlan,
+  initPortPlan,
+  PREFERRED_PORT_BASE,
+  type PortPlan,
+} from '../lib/port-planner'
 
-export const DEFAULT_PORTS = {
-
-  main: 1212,
-
-  xiangyuWeb: 1213,
-
-  xiangyuBridge: 1214,
-
-  excelBridge: 1215,
-
-  printAgent: 1216,
-
-  /** 本地 Worker / 记账系统读取接口（仅 127.0.0.1） */
-  scannerApi: 1217,
-
-  /** 手机拍照专用 HTTPS（getUserMedia 需安全上下文） */
-  mobileHttps: 1218,
-
-  /** 第三阶段预留：Local Agent WebSocket */
-  localAgentWs: 1219,
-
-  /** 第三阶段预留：Local Agent HTTP API */
-  localAgentHttp: 1220,
-
-  /** 预留：千帆 Relay 代理 */
-  qianfanRelayProxy: 1221,
-
-  /** 预留：诊断 / 调试 */
-  diagnostics: 1222,
-
-  /** 外部千帆机器人 DevTools（暂不改动） */
-  qianfanDevtools: 9322,
-
-} as const
+export { initPortPlan, getEffectivePortPlan, type PortPlan }
 
 
 
@@ -101,10 +74,19 @@ export function parsePort(value: string | undefined | null, defaultPort: number,
 
 
 
+/** 统一端口规划（1212 起，服务器推荐；Windows 本机可能 fallback 到 1312） */
+export const DEFAULT_PORTS = {
+  ...buildPortsFromBase(PREFERRED_PORT_BASE),
+  /** 外部千帆机器人 DevTools（暂不改动） */
+  qianfanDevtools: 9322,
+} as const
+
+function planPorts() {
+  return getEffectivePortPlan().ports
+}
+
 export function getPort(): number {
-
-  return parsePort(process.env.PORT, DEFAULT_PORTS.main, 'PORT')
-
+  return parsePort(process.env.PORT, planPorts().main, 'PORT')
 }
 
 
@@ -114,7 +96,8 @@ export function getMobileHttpsPort(): number {
   const v = process.env.MOBILE_HTTPS_PORT?.trim()
   if (v === '0') return 0
   if (v && !parseBool(v, true, 'MOBILE_HTTPS_PORT')) return 0
-  return parsePort(process.env.MOBILE_HTTPS_PORT, DEFAULT_PORTS.mobileHttps, 'MOBILE_HTTPS_PORT')
+  const n = parsePort(process.env.MOBILE_HTTPS_PORT, planPorts().mobileHttps, 'MOBILE_HTTPS_PORT')
+  return Number.isInteger(n) ? n : planPorts().mobileHttps
 }
 
 
@@ -145,7 +128,7 @@ export function getMediaDir(): string {
 
 export function getExcelBridgeUrl(): string {
 
-  return process.env.EXCEL_BRIDGE_URL || `http://127.0.0.1:${DEFAULT_PORTS.excelBridge}`
+  return process.env.EXCEL_BRIDGE_URL || `http://127.0.0.1:${planPorts().excelBridge}`
 
 }
 
@@ -157,7 +140,7 @@ export function getExcelBridgePort(): number {
 
     const u = new URL(getExcelBridgeUrl())
 
-    return u.port ? parsePort(u.port, DEFAULT_PORTS.excelBridge, 'EXCEL_BRIDGE_URL port') : DEFAULT_PORTS.excelBridge
+    return u.port ? parsePort(u.port, planPorts().excelBridge, 'EXCEL_BRIDGE_URL port') : planPorts().excelBridge
 
   } catch {
 
@@ -171,12 +154,11 @@ export function getExcelBridgePort(): number {
 
 export function getPrintAgentUrl(): string {
 
-  return process.env.PRINT_AGENT_URL || `http://127.0.0.1:${DEFAULT_PORTS.printAgent}`
-
+  return process.env.PRINT_AGENT_URL || `http://127.0.0.1:${planPorts().printAgent}`
 }
 
 export function getScannerApiPort(): number {
-  return parsePort(process.env.SCANNER_API_PORT, DEFAULT_PORTS.scannerApi, 'SCANNER_API_PORT')
+  return parsePort(process.env.SCANNER_API_PORT, planPorts().scannerApi, 'SCANNER_API_PORT')
 }
 
 /** 默认开启；设为 false 可关闭本地 Scanner API */
@@ -188,7 +170,7 @@ export function isScannerApiEnabled(): boolean {
 
 export function getPrintAgentPort(): number {
 
-  return parsePort(process.env.PRINT_AGENT_PORT, DEFAULT_PORTS.printAgent, 'PRINT_AGENT_PORT')
+  return parsePort(process.env.PRINT_AGENT_PORT, planPorts().printAgent, 'PRINT_AGENT_PORT')
 
 }
 
@@ -213,7 +195,7 @@ export function getXiangyuRoot(): string {
 
 export function getXiangyuPort(): number {
 
-  return parsePort(process.env.XIANGYU_PORT, DEFAULT_PORTS.xiangyuWeb, 'XIANGYU_PORT')
+  return parsePort(process.env.XIANGYU_PORT, planPorts().xiangyuWeb, 'XIANGYU_PORT')
 
 }
 
@@ -221,7 +203,7 @@ export function getXiangyuPort(): number {
 
 export function getXiangyuBridgePort(): number {
 
-  return parsePort(process.env.XIANGYU_BRIDGE_PORT, DEFAULT_PORTS.xiangyuBridge, 'XIANGYU_BRIDGE_PORT')
+  return parsePort(process.env.XIANGYU_BRIDGE_PORT, planPorts().xiangyuBridge, 'XIANGYU_BRIDGE_PORT')
 
 }
 
@@ -269,7 +251,7 @@ export function getXiangyuBridgeConfig(): XiangyuBridgeConfig {
   )
   const bridge = xiangyuCfg?.bridge
   return {
-    devtoolsPort: bridge?.devtoolsPort && bridge.devtoolsPort !== DEFAULT_PORTS.mobileHttps
+    devtoolsPort: bridge?.devtoolsPort && bridge.devtoolsPort !== planPorts().mobileHttps
       ? bridge.devtoolsPort
       : (readQianfanBotDevtoolsPort() || bridge?.devtoolsPort || defaults.devtoolsPort),
     qianfanDataDir: bridge?.qianfanDataDir?.trim() || defaults.qianfanDataDir,

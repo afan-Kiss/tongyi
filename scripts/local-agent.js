@@ -21,6 +21,8 @@ const QIANFAN_ROOT = path.resolve(
   arg('--qianfan-root', process.env.QIANFAN_RELAY_ROOT || path.join(__dirname, '../../千帆中转机器人')),
 )
 
+const { executeQianfanSend } = require('./local-agent/executors/qianfan-send.executor')
+
 let token = process.env.AGENT_TOKEN || ''
 let qianfanChild = null
 
@@ -119,12 +121,8 @@ async function executeTask(task) {
         },
       }
     case 'qianfan.sendText':
-      if (!payload.buyerNick) {
-        return { status: 'failed', errorMessage: '必须指定 buyerNick' }
-      }
-      return { status: 'retryable_failed', errorMessage: '发送文字需对接千帆本地 API，第二阶段实现' }
     case 'qianfan.sendImage':
-      return { status: 'retryable_failed', errorMessage: '发送图片需对接千帆本地 API，第二阶段实现' }
+      return executeQianfanSend(task)
     case 'excel.read':
     case 'excel.write':
     case 'excel.export':

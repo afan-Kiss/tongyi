@@ -14,17 +14,27 @@ import { agentRouter } from '../../modules/agent/agent.routes'
 import { qianfanRelayRouter } from '../../modules/qianfan-relay/qianfanRelay.routes'
 import { portalRouter } from '../../modules/portal/portal.routes'
 import { systemDiscoveryRouter } from '../../modules/system-discovery/systemDiscovery.routes'
+import { qianfanSendRouter } from '../../modules/qianfan-send/qianfanSend.routes'
+import { orderFinanceAlertRouter } from '../../modules/order-finance-alert/orderFinanceAlert.routes'
+import { getEffectivePortPlan } from '../../config/env'
 
 export const v1Router = Router()
 
 v1Router.use(auditApiLogMiddleware)
 
 v1Router.get('/health', (_req, res) => {
+  const plan = getEffectivePortPlan()
   res.json({
     ok: true,
     service: 'tongyi-operations-api',
     version: 'v1',
     mobile: getMobileCameraNetworkInfo(),
+    portPlan: {
+      basePort: plan.basePort,
+      source: plan.source,
+      mainPort: plan.ports.main,
+      warnings: plan.warnings,
+    },
   })
 })
 
@@ -43,6 +53,8 @@ v1Router.use('/agent', agentRouter)
 v1Router.use('/qianfan-relay', qianfanRelayRouter)
 v1Router.use('/portal', portalRouter)
 v1Router.use('/system-discovery', systemDiscoveryRouter)
+v1Router.use('/qianfan-send', qianfanSendRouter)
+v1Router.use('/order-finance-alerts', orderFinanceAlertRouter)
 
 v1Router.post('/print/bracelet-tag', async (req, res) => {
   const { queryByCertNo } = await import('../../services/inventory-query.service')

@@ -130,13 +130,15 @@ npm run build:server
 
 ### Windows 端口占用提示
 
-若启动报 `EACCES` / `WinError 10013`，可能是 Hyper-V / WSL 保留了 **1125–1224** 端口段（含 1212–1222）。可执行：
+- **服务器正式推荐**：1212 端口组。
+- **Windows 本机**：若 1212 落在 Hyper-V 保留段（1125–1224），启动时会**自动 fallback 到 1312**，再不行尝试 1412。
+- **本地访问地址以启动日志为准**（supervisor / 后端会打印 `http://127.0.0.1:xxxx/inventory`）。
+- **不建议**为了强行使用 1212 去改 Hyper-V 动态端口；稳定优先。
+- 可强制指定：`TONGYI_PORT_BASE=1312` 或 `PORT=1312`（指定后仍会做预检，不可用则直接退出，不会无限重启）。
 
 ```bat
 netsh interface ipv4 show excludedportrange protocol=tcp
 ```
-
-若 1212 落在排除范围内，需以管理员调整 Hyper-V 动态端口策略，或重启后再启动本系统。
 
 ## 许可证
 

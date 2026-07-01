@@ -226,3 +226,84 @@ model UploadedMedia {
   @@index([bizType, bizId])
   @@index([createdAt])
 }
+
+/// 千帆发送任务（任务制，禁止假成功）
+model QianfanSendJob {
+  id                  String   @id @default(uuid())
+  taskId              String?  @unique
+  source              String
+  messageType         String
+  shopTitle           String
+  buyerNick           String
+  appCid              String
+  receiverAppUidsJson String   @default("[]")
+  replyId             Int?
+  text                String?
+  mediaId             String?
+  imageUrl            String?
+  imageLocalPath      String?
+  targetLockJson      String
+  payloadSummaryJson  String   @default("{}")
+  status              String   @default("pending")
+  errorCode           String?
+  errorMessage        String?
+  ackMsgId            String?
+  qianfanMsgId        String?
+  attemptCount        Int      @default(0)
+  maxAttempts         Int      @default(3)
+  nextRetryAt         DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  sentAt              DateTime?
+  finishedAt          DateTime?
+  attempts            QianfanSendAttempt[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([buyerNick])
+}
+
+model QianfanSendAttempt {
+  id           String   @id @default(uuid())
+  jobId        String
+  job          QianfanSendJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  attemptNo    Int
+  status       String
+  startedAt    DateTime @default(now())
+  finishedAt   DateTime?
+  errorCode    String?
+  errorMessage String?
+  requestJson  String   @default("{}")
+  responseJson String   @default("{}")
+  ackJson      String   @default("{}")
+  logJson      String   @default("{}")
+
+  @@index([jobId])
+}
+
+/// 订单财务提醒（返现/支出/退款）
+model OrderFinanceAlert {
+  id          String   @id @default(uuid())
+  source      String   @default("manual")
+  orderNo     String?
+  logisticsNo String?
+  trackingNo  String?
+  buyerName   String?
+  buyerPhone  String?
+  type        String
+  amount      Float?
+  title       String?
+  message     String?
+  status      String   @default("pending")
+  externalId  String?
+  rawJson     String   @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  handledAt   DateTime?
+
+  @@index([orderNo])
+  @@index([logisticsNo])
+  @@index([trackingNo])
+  @@index([buyerPhone])
+  @@index([status])
+}

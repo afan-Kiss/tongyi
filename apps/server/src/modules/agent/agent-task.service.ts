@@ -97,6 +97,11 @@ export async function pullAgentTask(machineId: string) {
     },
   })
 
+  if (task.type.startsWith('qianfan.send')) {
+    const { markJobClaimed } = await import('../qianfan-send/qianfanSend.service')
+    await markJobClaimed(task.id).catch(() => {})
+  }
+
   return toTaskView(updated)
 }
 
@@ -130,6 +135,13 @@ export async function submitAgentTaskResult(
       startedAt: canRetry ? null : task.startedAt,
     },
   })
+
+  if (task.type.startsWith('qianfan.send')) {
+    const { handleQianfanAgentTaskResult } = await import('../qianfan-send/qianfanSend.service')
+    await handleQianfanAgentTaskResult(taskId, task.type, body).catch((err) => {
+      console.warn('[qianfan-send] 更新任务状态失败:', err instanceof Error ? err.message : err)
+    })
+  }
 
   return toTaskView(updated)
 }

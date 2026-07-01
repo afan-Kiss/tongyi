@@ -73,6 +73,8 @@ export const inventoryApi = {
         importedFromExcel?: boolean
         excelSource?: 'cache' | 'live' | null
         needsPhoto?: boolean
+        financeAlerts?: import('./types').FinanceAlertView[]
+        financeWarning?: string
       }
     }>(
       `/inventory/by-scan/${encodeURIComponent(code)}${qs ? `?${qs}` : ''}`,
@@ -83,6 +85,14 @@ export const inventoryApi = {
       `/inventory/by-cert/${encodeURIComponent(certNo)}`,
       { method: 'PATCH', body: JSON.stringify(body) },
     ),
+  financeAlertSearch: (params: Record<string, string>) => {
+    const q = new URLSearchParams(params)
+    return request<{ data: { alerts: import('./types').FinanceAlertView[]; warning?: string } }>(
+      `/order-finance-alerts/search?${q}`,
+    )
+  },
+  financeAlertHandled: (id: string) =>
+    request(`/order-finance-alerts/${encodeURIComponent(id)}/handled`, { method: 'POST' }),
   deleteByCert: (certNo: string) =>
     request<{ data: { certNo: string } }>(`/inventory/by-cert/${encodeURIComponent(certNo)}`, {
       method: 'DELETE',
@@ -257,7 +267,37 @@ export const platformApi = {
   qianfanRestart: () => request<{ data: { queued: boolean; message: string }; message?: string }>('/qianfan-relay/restart', { method: 'POST' }),
   qianfanMessages: (limit = 20) => request<{ data: { recent: Record<string, unknown>[]; pending: Record<string, unknown>[] } }>(`/qianfan-relay/messages?limit=${limit}`),
   qianfanNotifications: (limit = 20) => request<{ data: { items: Record<string, unknown>[] } }>(`/qianfan-relay/notifications?limit=${limit}`),
-  qianfanSendText: (body: { buyerNick: string; text: string; shopName?: string; appCid?: string }) =>
+  qianfanSendText: (body: {
+    shopTitle: string
+    buyerNick: string
+    appCid: string
+    receiverAppUids: string[]
+    text: string
+    replyId?: number
+    source?: string
+  }) =>
+    request<{ data: import('./types').QianfanSendJobView; message?: string }>('/qianfan-send/text', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  qianfanSendJobs: (limit = 30) =>
+    request<{ data: { jobs: import('./types').QianfanSendJobView[] } }>(`/qianfan-send/jobs?limit=${limit}`),
+  qianfanSendJob: (id: string) =>
+    request<{ data: import('./types').QianfanSendJobView }>(`/qianfan-send/jobs/${encodeURIComponent(id)}`),
+  retryQianfanSendJob: (id: string) =>
+    request<{ data: import('./types').QianfanSendJobView; message?: string }>(
+      `/qianfan-send/jobs/${encodeURIComponent(id)}/retry`,
+      { method: 'POST' },
+    ),
+  financeAlertSearch: (params: Record<string, string>) => {
+    const q = new URLSearchParams(params)
+    return request<{ data: { alerts: import('./types').FinanceAlertView[]; warning?: string } }>(
+      `/order-finance-alerts/search?${q}`,
+    )
+  },
+  financeAlertHandled: (id: string) =>
+    request(`/order-finance-alerts/${encodeURIComponent(id)}/handled`, { method: 'POST' }),
+  qianfanSendTextLegacy: (body: { buyerNick: string; text: string; shopName?: string; appCid?: string }) =>
     request<{ data: { queued: boolean; message: string }; message?: string }>('/qianfan-relay/send-text', {
       method: 'POST',
       body: JSON.stringify(body),

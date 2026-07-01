@@ -27,7 +27,8 @@ import {
 import { fetchXhsCookieHealth, fetchXhsSearchCacheStatus, type XhsCookieHealthResult, type XhsSearchCacheStatus } from '@/lib/xhsOrdersApi'
 import { useScanWorkbench } from '@/hooks/useScanWorkbench'
 
-import type { Bracelet } from '@/api/types'
+import { ScanFinanceAlertBanner } from '@/components/ScanFinanceAlertBanner'
+import type { Bracelet, FinanceAlertView } from '@/api/types'
 
 type ResultView = 'idle' | 'inventory' | 'orders'
 
@@ -61,6 +62,8 @@ export const ScanPage: React.FC = () => {
   const [orderSearching, setOrderSearching] = useState(false)
   const [cookieHealth, setCookieHealth] = useState<XhsCookieHealthResult | null>(null)
   const [searchCacheStatus, setSearchCacheStatus] = useState<XhsSearchCacheStatus | null>(null)
+  const [financeAlerts, setFinanceAlerts] = useState<FinanceAlertView[]>([])
+  const [financeWarning, setFinanceWarning] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
   const scanGenRef = useRef(0)
   const navigate = useNavigate()
@@ -87,6 +90,26 @@ export const ScanPage: React.FC = () => {
     loadMeta()
     const timer = window.setInterval(loadMeta, 10 * 60 * 1000)
     return () => window.clearInterval(timer)
+  }, [])
+
+  const loadFinanceAlerts = useCallback(async (params: Record<string, string>) => {
+    try {
+      const r = await inventoryApi.financeAlertSearch(params)
+      setFinanceAlerts(r.data.alerts || [])
+      setFinanceWarning(r.data.warning || '')
+    } catch {
+      setFinanceAlerts([])
+      setFinanceWarning('记账提醒暂时不可用，扫码不受影响')
+    }
+  }, [])
+
+  const markFinanceHandled = useCallback(async (id: string) => {
+    try {
+      await inventoryApi.financeAlertHandled(id)
+      setFinanceAlerts((prev) => prev.filter((a) => a.id !== id))
+    } catch {
+      setFinanceWarning('更新提醒状态失败，不影响扫码')
+    }
   }, [])
 
   const refocus = useCallback(() => {
@@ -155,14 +178,19 @@ export const ScanPage: React.FC = () => {
     setOrderQuery(q)
     setOrderSearchToken((t) => t + 1)
     setStatus(`查订单：${q}`)
+    void loadFinanceAlerts({ orderNo: q, logisticsNo: q, trackingNo: q })
     refocus()
-  }, [clearExcelSync, refocus])
+  }, [clearExcelSync, refocus, loadFinanceAlerts])
 
   const handleInventoryScan = async (scanned: string, gen: number) => {
     try {
       const r = await inventoryApi.scanLookup(scanned, { includeList: true, importFromExcel: true })
       if (gen !== scanGenRef.current) return true
-      const { items, importedFromExcel, needsPhoto, excelSource } = r.data
+      const { items, importedFromExcel, needsPhoto, excelSource, financeAlerts: alerts, financeWarning } = r.data
+      if (alerts?.length) setFinanceAlerts(alerts)
+      else if (financeWarning) setFinanceWarning(financeWarning)
+      else setFinanceWarning('')
+      if (items[0]?.orderNo) void loadFinanceAlerts({ orderNo: items[0].orderNo })
       if (!items.length) return false
       if (items.length === 1) {
         openFound(scanned, items[0], undefined, {
@@ -330,6 +358,13 @@ export const ScanPage: React.FC = () => {
             {status}
           </div>
         )}
+
+        <ScanFinanceAlertBanner
+          alerts={financeAlerts}
+          warning={financeWarning}
+          onHandled={(id) => void markFinanceHandled(id)}
+          compact
+        />
 
         {resultView === 'inventory' && scanMatches.length > 1 && (
           <div className="mt-4 space-y-2 text-left">
