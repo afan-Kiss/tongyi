@@ -1,4 +1,5 @@
 import { api } from './api.js';
+import { initSentOrders } from './store.js';
 import { renderOrdersPage } from './pages/orders.js';
 import { renderCapturePage } from './pages/capture.js';
 import { renderEditorPage } from './pages/editor.js';
@@ -155,7 +156,7 @@ passwordCancel.addEventListener('click', () => {
 window.addEventListener('resize', updateNavPill);
 
 async function bootstrap() {
-  const configTask = Promise.all([api.getPublicConfig(), api.authStatus()]);
+  const configTask = Promise.all([api.getPublicConfig(), api.authStatus(), initSentOrders(api)]);
   navigate('orders');
   try {
     const [publicConfig, auth] = await configTask;

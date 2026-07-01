@@ -6,6 +6,9 @@ import {
   clearWorkflow,
   formatBuyerWithShop,
   markOrderPackSent,
+  loadPrefaceDraft,
+  resolvePrefaceForEditor,
+  savePrefaceDraft,
 } from '../store.js';
 import { dataUrlToFile } from './capture.js';
 
@@ -295,11 +298,12 @@ export async function renderEditorPage(root, { navigate, toast }) {
     const pub = await api.getPublicConfig();
     editorConfig = pub.editor || editorConfig;
   } catch {
-    // use defaults
+    // 服务端不可用时仍可从 localStorage 恢复
   }
 
-  const savedPreface = editorConfig.prefaceMessage || '';
-  const prefaceEnabled = editorConfig.prefaceEnabled !== false;
+  const prefaceResolved = resolvePrefaceForEditor(editorConfig);
+  const savedPreface = prefaceResolved.prefaceMessage;
+  const prefaceEnabled = prefaceResolved.prefaceEnabled;
   const buyerLabel = formatBuyerWithShop(order);
   const tags = Array.isArray(editorConfig.annotationTags) ? editorConfig.annotationTags : [];
 
@@ -344,7 +348,7 @@ export async function renderEditorPage(root, { navigate, toast }) {
               <input type="checkbox" id="prefaceCheck" ${prefaceEnabled ? 'checked' : ''} />
               <span>发图片之前，先发一段说明文字</span>
             </label>
-            <textarea id="prefaceInput" rows="3" placeholder="例如：亲，以下是和田玉手镯的实拍图…"></textarea>
+            <textarea id="prefaceInput" rows="3" placeholder="例如：亲，您的和田玉已经检查好啦…"></textarea>
             <button type="button" class="btn ghost btn-sm" id="savePrefaceBtn">保存这段文字</button>
           </div>
 
@@ -390,7 +394,26 @@ export async function renderEditorPage(root, { navigate, toast }) {
   const editor = new AnnotationEditor(canvas);
   const status = root.querySelector('#sendStatus');
   const canvasHint = root.querySelector('#canvasHint');
-  root.querySelector('#prefaceInput').value = savedPreface;
+  const prefaceInput = root.querySelector('#prefaceInput');
+  const prefaceCheck = root.querySelector('#prefaceCheck');
+  prefaceInput.value = savedPreface;
+  if (!loadPrefaceDraft()?.text && savedPreface) {
+    savePrefaceDraft({ text: savedPreface, enabled: prefaceEnabled });
+  }
+
+  let prefaceDraftTimer = null;
+  const persistPrefaceDraft = () => {
+    savePrefaceDraft({
+      text: prefaceInput.value,
+      enabled: prefaceCheck.checked,
+    });
+  };
+  const schedulePrefaceDraft = () => {
+    clearTimeout(prefaceDraftTimer);
+    prefaceDraftTimer = setTimeout(persistPrefaceDraft, 400);
+  };
+  prefaceInput.addEventListener('input', schedulePrefaceDraft);
+  prefaceCheck.addEventListener('change', persistPrefaceDraft);
 
   function updateTagUi(activeTag) {
     root.querySelectorAll('.tag-btn').forEach((btn) => {
@@ -478,6 +501,7 @@ export async function renderEditorPage(root, { navigate, toast }) {
     }
     btn.disabled = true;
     try {
+      savePrefaceDraft({ text, enabled });
       await api.savePreface({ text, enabled });
       toast('说明文字已保存，下次会自动填入', { type: 'ok' });
     } catch (err) {
@@ -528,6 +552,7 @@ export async function renderEditorPage(root, { navigate, toast }) {
 
     try {
       if (prefaceText) {
+        savePrefaceDraft({ text: prefaceText, enabled: sendPreface });
         api.savePreface({ text: prefaceText, enabled: sendPreface }).catch(() => {});
       }
       await api.sendImage({
@@ -539,7 +564,8 @@ export async function renderEditorPage(root, { navigate, toast }) {
       status.textContent = sendPreface ? '发送成功，说明与图片均已发出' : '发送成功，千帆已确认收到';
       status.className = 'status-bar ok';
       toast(sendPreface ? '说明与图片均已发送' : '发送成功，千帆已确认收到', { type: 'ok' });
-      markOrderPackSent(getSelectedOrder(), 'image');
+      markOrderPackSent(getSelectedOrder(), sendPreface ? 'image+text' : 'image', api);
+      await initSentOrders(api, { force: true });
       clearWorkflow();
       setTimeout(() => navigate('orders'), 1500);
     } catch (err) {

@@ -24,6 +24,7 @@ const {
 const { resolveAccounts, clearOutboundAccountCache, getOutboundConfigPath, listEnabledAccounts } = require('../services/xhsAccountImport');
 const { debugLog } = require('../debugLog');
 const { sendImageToBuyer, sendVideoToBuyer, openSessionWithBuyer, checkBridgeHealth } = require('../services/bridgeService');
+const { markOrderSent, listSentOrders } = require('../services/sentOrdersService');
 const { mergeImagesVertically } = require('../services/imageService');
 const { prepareVideoForSend, MAX_VIDEO_BYTES, findFfmpeg, extractCoverJpeg, pickVideoExt } = require('../services/videoService');
 const { ROOT } = require('../config');
@@ -303,6 +304,21 @@ a.btn{display:inline-block;margin-top:12px;padding:10px 16px;background:#7c3aed;
     res.json(result);
   });
 
+  router.get('/sent-orders', (_req, res) => {
+    res.json({ ok: true, orders: listSentOrders() });
+  });
+
+  router.post('/sent-orders/mark', (req, res) => {
+    try {
+      const { order, kind } = req.body || {};
+      const entry = markOrderSent(order || {}, kind || 'image');
+      if (!entry) return res.status(400).json({ error: '缺少订单信息' });
+      res.json({ ok: true, entry, orders: listSentOrders() });
+    } catch (err) {
+      res.status(500).json({ error: String(err.message || err) });
+    }
+  });
+
   router.post('/images/merge', upload.array('images', 20), async (req, res) => {
     try {
       const files = req.files || [];
@@ -382,6 +398,7 @@ a.btn{display:inline-block;margin-top:12px;padding:10px 16px;background:#7c3aed;
       if (!result.delivered && !result.msgId) {
         return res.status(500).json({ error: result.message || '发送未确认，请稍后在千帆里检查' });
       }
+      markOrderSent(order, sendPreface && prefaceText ? 'image+text' : 'image');
       res.json(result);
     } catch (err) {
       res.status(500).json({ error: String(err.message || '发送失败，请稍后再试') });
@@ -478,6 +495,7 @@ a.btn{display:inline-block;margin-top:12px;padding:10px 16px;background:#7c3aed;
       if (!result.delivered && !result.msgId) {
         return res.status(500).json({ error: result.message || '发送未确认，请稍后在千帆里检查' });
       }
+      markOrderSent(order, 'video');
       res.json(result);
     } catch (err) {
       res.status(500).json({ error: String(err.message || err) });

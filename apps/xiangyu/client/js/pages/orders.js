@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { setSelectedOrder, formatBuyerWithShop, getCachedOrders, setCachedOrders, isOrderPackSent } from '../store.js';
+import { setSelectedOrder, formatBuyerWithShop, getCachedOrders, setCachedOrders, isOrderPackSent, initSentOrders, getOrderSentMeta } from '../store.js';
 
 function formatTime(ts) {
   const n = Number(ts);
@@ -22,6 +22,9 @@ function renderOrderItem(order, index) {
     : `<div class="order-thumb"></div>`;
   const isToday = order.dayLabel === '今日';
   const sent = isOrderPackSent(order);
+  const sentMeta = sent ? getOrderSentMeta(order) : null;
+  const sentHint =
+    sentMeta?.kind === 'video' ? '已发视频' : sentMeta?.kind === 'image+text' ? '已发说明+图' : '已发合成图';
   const badgeLabel = sent ? '已发送' : (order.dayLabel || order.status);
   const badgeClass = sent ? 'badge sent' : `badge ${isToday ? 'today' : ''}`;
 
@@ -31,7 +34,7 @@ function renderOrderItem(order, index) {
       <div class="order-meta">
         <div class="order-title">${sent ? '<span class="sent-check" aria-hidden="true">✓ </span>' : ''}${escapeHtml(order.productTitle)}</div>
         <div class="order-sub">${escapeHtml(formatBuyerWithShop(order))}</div>
-        <div class="order-sub">${escapeHtml(order.amount || '')} · ${formatTime(order.createdAt)}${sent ? ' · <span class="sent-hint">已发合成图</span>' : ''}</div>
+        <div class="order-sub">${escapeHtml(order.amount || '')} · ${formatTime(order.createdAt)}${sent ? ` · <span class="sent-hint">${sentHint}</span>` : ''}</div>
       </div>
       <span class="${badgeClass}">${escapeHtml(badgeLabel)}</span>
     </button>
@@ -129,6 +132,8 @@ export async function renderOrdersPage(root, { navigate, toast }) {
   }
 
   async function load({ force = false } = {}) {
+    await initSentOrders(api);
+
     const cached = !force ? getCachedOrders() : null;
     if (cached) {
       paintOrders(cached, { showYesterday: true });

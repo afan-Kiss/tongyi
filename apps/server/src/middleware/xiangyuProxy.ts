@@ -33,6 +33,7 @@ function proxyRequest(req: Request, res: Response): void {
   const port = targetPort()
   const headers = { ...req.headers, host: `127.0.0.1:${port}` }
   delete headers['accept-encoding']
+  delete headers['content-length']
 
   const proxyReq = http.request(
     {

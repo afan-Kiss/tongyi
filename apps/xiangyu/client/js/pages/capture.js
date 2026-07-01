@@ -1,6 +1,6 @@
 import { api } from '../api.js';
 import { ensureSendReady } from '../sessionSetup.js';
-import { getSelectedOrder, setCapturedPhotos, getCapturedPhotos, clearVideoPrepared, setSendReady, formatBuyerWithShop } from '../store.js';
+import { getSelectedOrder, setCapturedPhotos, getCapturedPhotos, clearVideoPrepared, setSendReady, formatBuyerWithShop, markOrderPackSent, initSentOrders } from '../store.js';
 import { isMobileDevice, canUseLiveCamera, liveCameraBlockedReason } from '../media.js';
 
 function escapeHtml(str) {
@@ -579,6 +579,8 @@ export async function renderCapturePage(root, { navigate, toast }) {
       videoStatus.textContent = '发送成功，千帆已确认收到';
       videoStatus.className = 'status-bar ok';
       toast('发送成功，千帆已确认收到', { type: 'ok' });
+      markOrderPackSent(getSelectedOrder(), 'video', api);
+      await initSentOrders(api, { force: true });
       clearVideoPrepared();
       setTimeout(() => navigate('orders'), 1500);
     } catch (err) {

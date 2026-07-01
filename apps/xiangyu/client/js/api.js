@@ -97,4 +97,18 @@ export const api = {
   openSession: (order) => request('/bridge/open-session', { method: 'POST', body: JSON.stringify({ order }) }),
   bridgeHealth: () => request('/bridge/health'),
   importAccounts: () => request('/settings/import-accounts', { method: 'POST', body: JSON.stringify({}) }),
+  getSentOrders: () => request('/sent-orders'),
+  markSentOrder: ({ order, kind }) =>
+    request('/sent-orders/mark', { method: 'POST', body: JSON.stringify({ order, kind }) }),
+  markSentOrderByKey: (key, meta) =>
+    request('/sent-orders/mark', {
+      method: 'POST',
+      body: JSON.stringify({
+        order: {
+          shopTitle: meta?.shopTitle || key.split('::')[0] || '',
+          orderNo: meta?.orderNo || key.split('::')[1] || key,
+        },
+        kind: meta?.kind || 'image',
+      }),
+    }),
 };

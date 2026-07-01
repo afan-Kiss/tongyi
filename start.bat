@@ -60,13 +60,17 @@ if not exist apps\xiangyu\config.json (
 
 
 
+set NEED_STOP=0
 netstat -ano | findstr ":4725 " | findstr "LISTENING" >nul 2>&1
+if not errorlevel 1 set NEED_STOP=1
+netstat -ano | findstr ":4727 " | findstr "LISTENING" >nul 2>&1
+if not errorlevel 1 set NEED_STOP=1
 
-if not errorlevel 1 (
+if %NEED_STOP%==1 (
 
   echo.
 
-  echo [提示] 检测到 4725 端口占用，正在自动停止旧进程...
+  echo [提示] 检测到旧进程占用端口，正在自动停止...
 
   call "%~dp0stop.bat" silent
 

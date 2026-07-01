@@ -168,12 +168,91 @@ export function clearCachedOrders() {
   }
 }
 
+export const DEFAULT_PREFACE_MESSAGE =
+  '亲，您的和田玉已经检查好啦，准备正常安排发出。发货前给您拍几张实物图留个记录，方便您提前看一下实物状态。后续物流信息您在订单里就可以查看哈。如果您想看视频实拍的话 把您的\\/ 给我';
+
+const PREFACE_DRAFT_KEY = 'xiangyu.prefaceDraft';
+
+export function loadPrefaceDraft() {
+  try {
+    const raw = localStorage.getItem(PREFACE_DRAFT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    return {
+      text: String(parsed.text || '').trim(),
+      enabled: parsed.enabled !== false,
+      savedAt: Number(parsed.savedAt || 0),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function savePrefaceDraft({ text, enabled }) {
+  try {
+    localStorage.setItem(
+      PREFACE_DRAFT_KEY,
+      JSON.stringify({
+        text: String(text ?? '').trim(),
+        enabled: enabled !== false,
+        savedAt: Date.now(),
+      }),
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 服务端配置 + 本地草稿合并，保证刷新后仍能恢复说明文字 */
+export function resolvePrefaceForEditor(serverEditor) {
+  const local = loadPrefaceDraft();
+  const serverText = String(serverEditor?.prefaceMessage || '').trim();
+  const serverEnabled = serverEditor?.prefaceEnabled !== false;
+
+  if (local?.text) {
+    return {
+      prefaceMessage: local.text,
+      prefaceEnabled: local.enabled ?? serverEnabled,
+    };
+  }
+
+  return {
+    prefaceMessage: serverText || DEFAULT_PREFACE_MESSAGE,
+    prefaceEnabled: serverEnabled,
+  };
+}
+
 const SENT_ORDERS_KEY = 'xiangyu.sentOrders';
-const SENT_ORDERS_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
+const SENT_ORDERS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+let sentOrdersMemory = null;
+let sentOrdersInitPromise = null;
+
+function normalizeShopTitle(title) {
+  return String(title || '')
+    .replace(/-工作台\s*$/i, '')
+    .trim();
+}
 
 function orderSentKey(order) {
   if (!order) return '';
-  return String(order.orderId || order.orderNo || order.packageId || '').trim();
+  const shop = normalizeShopTitle(order.shopTitle || order.sourceAccountName || '');
+  const id = String(order.orderNo || order.packageId || order.orderId || '').trim();
+  if (!id) return '';
+  return shop ? `${shop}::${id}` : id;
+}
+
+function keysForOrder(order) {
+  const keys = new Set();
+  const main = orderSentKey(order);
+  if (main) keys.add(main);
+  for (const id of [order?.orderId, order?.orderNo, order?.packageId]) {
+    const s = String(id || '').trim();
+    if (s) keys.add(s);
+  }
+  return [...keys];
 }
 
 function loadSentOrdersMap() {
@@ -204,26 +283,78 @@ function pruneSentOrders(map) {
   return next;
 }
 
-/** 打包拍照（合成图/文字）已成功发送 */
-export function markOrderPackSent(order, kind = 'image') {
+function getSentMap() {
+  return sentOrdersMemory || loadSentOrdersMap();
+}
+
+function isSentMetaFresh(meta) {
+  return meta && Date.now() - Number(meta.sentAt || 0) <= SENT_ORDERS_MAX_AGE_MS;
+}
+
+/** 从服务端 + 本地合并已发送记录（刷新后仍保留） */
+export async function refreshSentOrders(api) {
+  let serverMap = {};
+  try {
+    const data = await api.getSentOrders();
+    serverMap = data?.orders && typeof data.orders === 'object' ? data.orders : {};
+  } catch {
+    serverMap = {};
+  }
+
+  const localMap = pruneSentOrders(loadSentOrdersMap());
+  const merged = { ...localMap, ...serverMap };
+
+  for (const [key, meta] of Object.entries(localMap)) {
+    if (!serverMap[key] && isSentMetaFresh(meta)) {
+      api.markSentOrderByKey(key, meta).catch(() => {});
+    }
+  }
+
+  sentOrdersMemory = merged;
+  saveSentOrdersMap(merged);
+  return merged;
+}
+
+export function initSentOrders(api, { force = false } = {}) {
+  if (force || !sentOrdersInitPromise) {
+    sentOrdersInitPromise = refreshSentOrders(api);
+  }
+  return sentOrdersInitPromise;
+}
+
+/** 打包拍照（合成图/文字/视频）已成功发送 */
+export function markOrderPackSent(order, kind = 'image', api = null) {
   const key = orderSentKey(order);
   if (!key) return;
-  const map = pruneSentOrders(loadSentOrdersMap());
+  const map = pruneSentOrders(getSentMap());
   map[key] = {
     sentAt: Date.now(),
     kind,
-    orderNo: String(order.orderNo || order.orderId || ''),
+    orderNo: String(order.orderNo || order.orderId || order.packageId || ''),
     buyerNick: String(order.buyerNick || ''),
+    shopTitle: normalizeShopTitle(order.shopTitle || order.sourceAccountName || ''),
   };
+  sentOrdersMemory = map;
   saveSentOrdersMap(map);
+  if (api?.markSentOrder) {
+    api.markSentOrder({ order, kind }).catch(() => {});
+  }
 }
 
 export function isOrderPackSent(order) {
-  const key = orderSentKey(order);
-  if (!key) return false;
-  const map = loadSentOrdersMap();
-  const meta = map[key];
-  if (!meta) return false;
-  if (Date.now() - Number(meta.sentAt || 0) > SENT_ORDERS_MAX_AGE_MS) return false;
-  return true;
+  const map = getSentMap();
+  for (const key of keysForOrder(order)) {
+    const meta = map[key];
+    if (isSentMetaFresh(meta)) return true;
+  }
+  return false;
+}
+
+export function getOrderSentMeta(order) {
+  const map = getSentMap();
+  for (const key of keysForOrder(order)) {
+    const meta = map[key];
+    if (isSentMetaFresh(meta)) return meta;
+  }
+  return null;
 }
