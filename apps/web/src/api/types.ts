@@ -358,6 +358,40 @@ export interface FinanceAlertView {
   status: string
 }
 
+export type AccountingRecordType = 'income' | 'expense' | 'cashback' | 'refund' | 'note'
+
+export interface AccountingRecordView {
+  id: string
+  recordNo: string
+  recordType: AccountingRecordType
+  recordTypeLabel: string
+  businessType: string
+  amount: number
+  occurredAt: string
+  summary?: string | null
+  remark?: string | null
+  externalOrderNo?: string | null
+  logisticsNo?: string | null
+  trackingNo?: string | null
+  buyerName?: string | null
+  buyerPhone?: string | null
+  customerPaymentStatus: string
+  statusLabel: string
+  hasPendingAlert?: boolean
+}
+
+export interface AccountingSummaryView {
+  period: string
+  startDate: string
+  endDate: string
+  incomeTotal: number
+  expenseTotal: number
+  cashbackTotal: number
+  refundTotal: number
+  pendingCount: number
+  handledCount: number
+}
+
 export interface PortalOverview {
   inventory: {
     degraded: boolean

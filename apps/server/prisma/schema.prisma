@@ -306,4 +306,59 @@ model OrderFinanceAlert {
   @@index([trackingNo])
   @@index([buyerPhone])
   @@index([status])
+  accountingRecordId String?
+  accountingRecord   AccountingRecord? @relation(fields: [accountingRecordId], references: [id], onDelete: SetNull)
+
+  @@index([accountingRecordId])
+}
+
+/// 经营记账记录（由旧记账系统 Expense 等迁入 tongyi）
+model AccountingRecord {
+  id                    String   @id @default(uuid())
+  recordNo              String   @unique
+  recordType            String
+  businessType          String   @default("normal")
+  amount                Float
+  occurredAt            DateTime
+  summary               String?
+  remark                String?
+  paySource             String?
+  externalOrderNo       String?
+  logisticsNo           String?
+  trackingNo            String?
+  buyerName             String?
+  buyerPhone            String?
+  braceletCode          String?
+  certNo                String?
+  reimbursementStatus   String   @default("pending")
+  customerPaymentStatus String   @default("pending")
+  isVoided              Boolean  @default(false)
+  legacyExpenseId       Int?
+  createdBy             String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  handledAt             DateTime?
+  attachments           AccountingAttachment[]
+  financeAlerts         OrderFinanceAlert[]
+
+  @@index([recordType])
+  @@index([externalOrderNo])
+  @@index([logisticsNo])
+  @@index([trackingNo])
+  @@index([customerPaymentStatus])
+  @@index([occurredAt])
+}
+
+model AccountingAttachment {
+  id           String   @id @default(uuid())
+  recordId     String
+  record       AccountingRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  filename     String
+  localPath    String
+  thumbPath    String?
+  mimeType     String?
+  sizeBytes    Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  @@index([recordId])
 }

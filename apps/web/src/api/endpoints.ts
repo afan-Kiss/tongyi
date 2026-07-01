@@ -256,6 +256,37 @@ export const photoRelayApi = {
     ),
 }
 
+export const accountingApi = {
+  summary: (period = 'today', startDate = '', endDate = '') => {
+    const q = new URLSearchParams({ period })
+    if (startDate) q.set('startDate', startDate)
+    if (endDate) q.set('endDate', endDate)
+    return request<{ data: import('./types').AccountingSummaryView }>(`/accounting/summary?${q}`)
+  },
+  list: (params: Record<string, string | number>) => {
+    const q = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => q.set(k, String(v)))
+    return request<{
+      data: {
+        items: import('./types').AccountingRecordView[]
+        total: number
+        page: number
+        pageSize: number
+      }
+    }>(`/accounting/records?${q}`)
+  },
+  create: (body: Record<string, unknown>) =>
+    request<{ data: import('./types').AccountingRecordView; message?: string }>('/accounting/records', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  markHandled: (id: string) =>
+    request<{ data: import('./types').AccountingRecordView; message?: string }>(
+      `/accounting/records/${encodeURIComponent(id)}/handled`,
+      { method: 'POST' },
+    ),
+}
+
 export const platformApi = {
   agentStatus: () => request<{ data: import('./types').AgentOverview }>('/agent/status'),
   agentTasks: (limit = 50) => request<{ data: { tasks: import('./types').AgentTaskView[] } }>(`/agent/tasks?limit=${limit}`),

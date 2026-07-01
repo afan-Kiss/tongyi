@@ -34,7 +34,11 @@ import { AgentCenterPage } from '@/pages/AgentCenterPage'
 
 import { SystemStatusPage } from '@/pages/SystemStatusPage'
 
-import { AccountingPortalPage } from '@/pages/AccountingPortalPage'
+import { AccountingLayout } from '@/pages/accounting/AccountingLayout'
+import { AccountingDashboardPage } from '@/pages/accounting/AccountingDashboardPage'
+import { AccountingTransactionsPage } from '@/pages/accounting/AccountingTransactionsPage'
+import { AccountingExpensePage, AccountingCashbackPage } from '@/pages/accounting/AccountingExpensePage'
+import { AccountingSettingsPage } from '@/pages/accounting/AccountingSettingsPage'
 
 import { LiveAnalysisPortalPage } from '@/pages/LiveAnalysisPortalPage'
 
@@ -85,7 +89,13 @@ const AuthenticatedRoutes: React.FC = () => (
             <Route path="settings" element={<SettingsPage />} />
 
             <Route path="qianfan" element={<QianfanRelayPage />} />
-            <Route path="accounting" element={<AccountingPortalPage />} />
+            <Route path="accounting" element={<AccountingLayout />}>
+              <Route index element={<AccountingDashboardPage />} />
+              <Route path="transactions" element={<AccountingTransactionsPage />} />
+              <Route path="expense" element={<AccountingExpensePage />} />
+              <Route path="cashback" element={<AccountingCashbackPage />} />
+              <Route path="settings" element={<AccountingSettingsPage />} />
+            </Route>
             <Route path="live-analysis" element={<LiveAnalysisPortalPage />} />
             <Route path="agents" element={<AgentCenterPage />} />
             <Route path="system-status" element={<SystemStatusPage />} />

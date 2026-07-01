@@ -79,7 +79,7 @@ export async function findAlertsForScanResult(ctx: ScanFinanceContext) {
   }
 }
 
-export async function createFinanceAlert(input: CreateFinanceAlertInput) {
+export async function createFinanceAlert(input: CreateFinanceAlertInput & { accountingRecordId?: string }) {
   const row = await prisma.orderFinanceAlert.create({
     data: {
       source: input.source || 'manual',
@@ -93,6 +93,7 @@ export async function createFinanceAlert(input: CreateFinanceAlertInput) {
       title: norm(input.title) || null,
       message: norm(input.message) || null,
       externalId: norm(input.externalId) || null,
+      accountingRecordId: norm(input.accountingRecordId) || null,
       rawJson: JSON.stringify(input.rawJson || {}),
       status: 'pending',
     },
@@ -105,6 +106,10 @@ export async function markAlertHandled(id: string) {
     where: { id },
     data: { status: 'handled', handledAt: new Date() },
   })
+  if (row.accountingRecordId) {
+    const { syncAccountingStatusFromAlert } = await import('../accounting/accounting-finance-bridge')
+    await syncAccountingStatusFromAlert(row.accountingRecordId, 'handled')
+  }
   return presentFinanceAlert(row)
 }
 
@@ -113,6 +118,10 @@ export async function markAlertIgnored(id: string) {
     where: { id },
     data: { status: 'ignored', handledAt: new Date() },
   })
+  if (row.accountingRecordId) {
+    const { syncAccountingStatusFromAlert } = await import('../accounting/accounting-finance-bridge')
+    await syncAccountingStatusFromAlert(row.accountingRecordId, 'ignored')
+  }
   return presentFinanceAlert(row)
 }
 
