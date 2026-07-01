@@ -1,0 +1,17 @@
+:root {
+  --premium-primary: #ff2442;
+  --premium-primary-soft: #ff6b81;
+  --premium-bg-start: #ffe4e9;
+  --premium-bg-end: #fdf8f5;
+  --premium-card-bg: rgba(255, 255, 255, 0.78);
+  --premium-card-border: rgba(255, 255, 255, 0.95);
+  --premium-shadow: 0 8px 32px rgba(15, 23, 42, 0.06);
+  --premium-shadow-hover: 0 16px 40px rgba(15, 23, 42, 0.1);
+  --premium-radius: 1rem;
+  --premium-radius-lg: 1.25rem;
+  --premium-enter-ms: 300ms;
+  --premium-accent-emerald: #10b981;
+  --premium-accent-amber: #f59e0b;
+  --premium-accent-sky: #0ea5e9;
+  --premium-accent-violet: #8b5cf6;
+}

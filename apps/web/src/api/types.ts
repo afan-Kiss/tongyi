@@ -343,5 +343,34 @@ export interface PortalOverview {
   agent: AgentOverview
   accounting: { url: string; online: boolean; message: string; plainMessage: string; proxyPath: string }
   liveAnalysis: { url: string; online: boolean; message: string; plainMessage: string; proxyPath: string }
+  runtimeMode?: {
+    mode: 'local' | 'server' | 'mixed'
+    label: string
+    description: string
+  }
   recentErrors: { module: string; message: string; at: string }[]
+}
+
+export interface DiscoveredSystem {
+  key: string
+  name: string
+  path: string
+  confidence: number
+  status: string
+  reason: string
+  suggestedEnv?: Record<string, string>
+}
+
+export interface DiscoveryScanResult {
+  available: boolean
+  baseDir: string
+  message: string
+  systems: DiscoveredSystem[]
+  runtimeMode?: PortalOverview['runtimeMode']
+}
+
+export interface DiscoveryApplyResult {
+  applied: Record<string, string | undefined>
+  skippedBecauseExisting: string[]
+  hint: string
 }

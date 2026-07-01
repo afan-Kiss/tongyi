@@ -1,0 +1,113 @@
+.premium-page-bg {
+  position: relative;
+  isolation: isolate;
+}
+
+.premium-page-bg::before {
+  content: '';
+  position: absolute;
+  inset: -1rem -0.5rem auto;
+  height: 220px;
+  background:
+    radial-gradient(circle at 12% 20%, rgba(255, 36, 66, 0.12), transparent 42%),
+    radial-gradient(circle at 88% 10%, rgba(14, 165, 233, 0.1), transparent 38%),
+    radial-gradient(circle at 70% 80%, rgba(139, 92, 246, 0.08), transparent 40%);
+  pointer-events: none;
+  z-index: -1;
+}
+
+.premium-glass {
+  background: var(--premium-card-bg);
+  border: 1px solid var(--premium-card-border);
+  box-shadow: var(--premium-shadow);
+  backdrop-filter: blur(12px);
+}
+
+.premium-glass-hover {
+  transition: transform 200ms ease, box-shadow 200ms ease, border-color 200ms ease;
+}
+
+.premium-glass-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--premium-shadow-hover);
+  border-color: rgba(255, 255, 255, 1);
+}
+
+.premium-topline {
+  position: relative;
+  overflow: hidden;
+}
+
+.premium-topline::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--premium-topline-gradient, linear-gradient(90deg, #ff2442, #ff6b81));
+  opacity: 0.95;
+}
+
+.premium-nav-scroll {
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.premium-nav-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.premium-nav-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  min-width: min-content;
+}
+
+.premium-stat-value {
+  transition: transform 200ms ease;
+}
+
+.premium-stat-card:hover .premium-stat-value {
+  transform: scale(1.03);
+}
+
+.premium-input {
+  width: 100%;
+  border-radius: 0.875rem;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(255, 255, 255, 0.85);
+  padding: 0.625rem 0.875rem;
+  font-size: 0.875rem;
+  outline: none;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.premium-input:focus {
+  border-color: rgba(255, 36, 66, 0.45);
+  box-shadow: 0 0 0 3px rgba(255, 36, 66, 0.12);
+}
+
+.premium-mobile-more-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(15, 23, 42, 0.35);
+  animation: premium-fade-in 200ms ease both;
+}
+
+.premium-mobile-more-panel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(56px + env(safe-area-inset-bottom));
+  max-height: 60vh;
+  overflow-y: auto;
+  border-radius: 1.25rem 1.25rem 0 0;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(16px);
+  padding: 1rem 1rem 0.5rem;
+  animation: premium-slide-up 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}

@@ -29,6 +29,12 @@ export interface AppSettingsData {
     enabled: boolean
     fontSizeBoost: number
   }
+  platformPaths?: {
+    qianfanRelayRoot?: string
+    jizhangWebUrl?: string
+    zhuboAnalysisWebUrl?: string
+    outboundConfigPath?: string
+  }
 }
 
 const DEFAULT_SETTINGS: AppSettingsData = {

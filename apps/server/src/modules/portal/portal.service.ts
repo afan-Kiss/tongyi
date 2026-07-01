@@ -1,8 +1,8 @@
 import { prisma } from '../../lib/prisma'
-import { getJizhangWebUrl, getZhuboAnalysisWebUrl } from '../../config/env'
 import { getAgentOverview } from '../agent/agent.service'
 import { getSystemStatus } from '../../services/settings.service'
 import { upsertQianfanRelayStatusSnapshot } from '../qianfan-relay/qianfanRelay.status'
+import { detectRuntimeMode, resolveJizhangWebUrlEffective, resolveZhuboAnalysisWebUrlEffective } from '../system-discovery/systemDiscovery.service'
 
 async function checkRemoteWeb(url: string, timeoutMs = 2000): Promise<{ online: boolean; message: string }> {
   if (!url) return { online: false, message: '未配置地址' }
@@ -21,15 +21,21 @@ async function checkRemoteWeb(url: string, timeoutMs = 2000): Promise<{ online: 
 }
 
 export async function getPortalOverview() {
-  const [systemStatus, agentOverview, qianfanSnapshot, jizhangCheck, zhuboCheck, moduleRows] =
+  const [systemStatus, agentOverview, qianfanSnapshot, jizhangUrl, zhuboUrl, runtimeMode, moduleRows] =
     await Promise.all([
       getSystemStatus(),
       getAgentOverview(),
       upsertQianfanRelayStatusSnapshot().catch(() => null),
-      checkRemoteWeb(getJizhangWebUrl()),
-      checkRemoteWeb(getZhuboAnalysisWebUrl()),
+      resolveJizhangWebUrlEffective(),
+      resolveZhuboAnalysisWebUrlEffective(),
+      detectRuntimeMode(),
       prisma.systemModuleStatus.findMany({ orderBy: { updatedAt: 'desc' }, take: 20 }),
     ])
+
+  const [jizhangCheck, zhuboCheck] = await Promise.all([
+    checkRemoteWeb(jizhangUrl),
+    checkRemoteWeb(zhuboUrl),
+  ])
 
   const recentErrors: { module: string; message: string; at: string }[] = []
   if (systemStatus.degradedReasons?.length) {
@@ -62,17 +68,18 @@ export async function getPortalOverview() {
     qianfan: qianfanSnapshot,
     agent: agentOverview,
     accounting: {
-      url: getJizhangWebUrl(),
+      url: jizhangUrl,
       proxyPath: '/jizhang-proxy',
       ...jizhangCheck,
       plainMessage: jizhangCheck.online ? '记账系统连接正常' : '记账系统暂时连不上，不影响扫码出库',
     },
     liveAnalysis: {
-      url: getZhuboAnalysisWebUrl(),
+      url: zhuboUrl,
       proxyPath: '/zhubo-proxy',
       ...zhuboCheck,
       plainMessage: zhuboCheck.online ? '主播分析连接正常' : '主播分析暂时连不上，不影响扫码出库',
     },
+    runtimeMode,
     modules: moduleRows.map((row) => ({
       moduleKey: row.moduleKey,
       moduleName: row.moduleName,

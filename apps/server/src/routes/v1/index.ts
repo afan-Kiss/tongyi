@@ -13,6 +13,7 @@ import { sendErr } from '../../utils/api-response'
 import { agentRouter } from '../../modules/agent/agent.routes'
 import { qianfanRelayRouter } from '../../modules/qianfan-relay/qianfanRelay.routes'
 import { portalRouter } from '../../modules/portal/portal.routes'
+import { systemDiscoveryRouter } from '../../modules/system-discovery/systemDiscovery.routes'
 
 export const v1Router = Router()
 
@@ -41,6 +42,7 @@ v1Router.use('/audit', auditRouter)
 v1Router.use('/agent', agentRouter)
 v1Router.use('/qianfan-relay', qianfanRelayRouter)
 v1Router.use('/portal', portalRouter)
+v1Router.use('/system-discovery', systemDiscoveryRouter)
 
 v1Router.post('/print/bracelet-tag', async (req, res) => {
   const { queryByCertNo } = await import('../../services/inventory-query.service')

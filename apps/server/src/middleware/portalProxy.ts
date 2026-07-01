@@ -1,6 +1,6 @@
 import http from 'node:http'
 import type { Express, Request, Response } from 'express'
-import { getJizhangWebUrl, getZhuboAnalysisWebUrl } from '../config/env'
+import { getEffectiveJizhangWebUrlSync, getEffectiveZhuboAnalysisWebUrlSync } from '../modules/system-discovery/systemDiscovery.service'
 
 export const JIZHANG_PROXY_PREFIX = '/jizhang-proxy'
 export const ZHUBO_PROXY_PREFIX = '/zhubo-proxy'
@@ -88,11 +88,11 @@ function proxyToTarget(req: Request, res: Response, baseUrl: string, prefix: str
 export function mountPortalProxies(app: Express): void {
   app.use((req, res, next) => {
     if (req.path.startsWith(JIZHANG_PROXY_PREFIX)) {
-      proxyToTarget(req, res, getJizhangWebUrl(), JIZHANG_PROXY_PREFIX, '经营记账')
+      proxyToTarget(req, res, getEffectiveJizhangWebUrlSync(), JIZHANG_PROXY_PREFIX, '经营记账')
       return
     }
     if (req.path.startsWith(ZHUBO_PROXY_PREFIX)) {
-      proxyToTarget(req, res, getZhuboAnalysisWebUrl(), ZHUBO_PROXY_PREFIX, '主播分析')
+      proxyToTarget(req, res, getEffectiveZhuboAnalysisWebUrlSync(), ZHUBO_PROXY_PREFIX, '主播分析')
       return
     }
     next()

@@ -38,6 +38,8 @@ async function main() {
   scheduleLicenseRefresh()
 
   await ensureDefaultLabelTemplate()
+  const { loadPlatformPathsCache } = await import('./modules/system-discovery/systemDiscovery.service')
+  await loadPlatformPathsCache()
 
   const settings = await prisma.appSettings.findUnique({ where: { id: 'singleton' } })
   const excelEnabled = settings

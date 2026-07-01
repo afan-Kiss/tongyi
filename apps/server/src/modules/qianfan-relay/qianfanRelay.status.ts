@@ -5,11 +5,30 @@ import {
   getQianfanDevtoolsPort,
   getQianfanLocalApiPort,
   getQianfanLocalApiUrl,
-  getQianfanRelayDataDir,
-  getQianfanRelayLogsDir,
-  getQianfanRelayRoot,
-  isQianfanRelayRootAvailable,
 } from '../../config/env'
+import { getEffectiveQianfanRelayRootSync } from '../system-discovery/systemDiscovery.service'
+
+function getQianfanRelayDataDirForRoot(root: string): string {
+  const candidates = [
+    path.join(root, 'dist', 'win-unpacked', 'data'),
+    path.join(root, 'data'),
+  ]
+  for (const dir of candidates) {
+    if (fs.existsSync(dir)) return dir
+  }
+  return candidates[0]
+}
+
+function getQianfanRelayLogsDirForRoot(root: string): string {
+  const candidates = [
+    path.join(root, 'dist', 'win-unpacked', 'logs'),
+    path.join(root, 'logs'),
+  ]
+  for (const dir of candidates) {
+    if (fs.existsSync(dir)) return dir
+  }
+  return candidates[0]
+}
 
 function readJsonFile<T>(filePath: string, fallback: T): T {
   try {
@@ -100,7 +119,7 @@ function parseTimestamp(value: unknown): Date | null {
 }
 
 function readConfigExpectedShopCount(): number {
-  const cfgPath = path.join(getQianfanRelayRoot(), 'config.wxbot-new.json')
+  const cfgPath = path.join(getEffectiveQianfanRelayRootSync(), 'config.wxbot-new.json')
   const cfg = readJsonFile<{ qianfanDebug?: { expectedShopCount?: number } }>(cfgPath, {})
   const n = Number(cfg.qianfanDebug?.expectedShopCount || 4)
   return Number.isFinite(n) && n > 0 ? n : 4
@@ -135,11 +154,11 @@ export interface QianfanFileSnapshot {
 }
 
 export async function readQianfanRelayFileSnapshot(): Promise<QianfanFileSnapshot> {
-  const rootPath = getQianfanRelayRoot()
-  const rootExists = isQianfanRelayRootAvailable()
-  const dataDir = getQianfanRelayDataDir()
+  const rootPath = getEffectiveQianfanRelayRootSync()
+  const rootExists = (() => { try { return fs.existsSync(rootPath) } catch { return false } })()
+  const dataDir = getQianfanRelayDataDirForRoot(rootPath)
   const dataDirExists = fs.existsSync(dataDir)
-  const logsDir = getQianfanRelayLogsDir()
+  const logsDir = getQianfanRelayLogsDirForRoot(rootPath)
   const devtoolsPort = getQianfanDevtoolsPort()
   const localApiPort = getQianfanLocalApiPort()
 

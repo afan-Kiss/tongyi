@@ -263,6 +263,12 @@ export const platformApi = {
       body: JSON.stringify(body),
     }),
   portalOverview: () => request<{ data: import('./types').PortalOverview }>('/portal/overview'),
+  discoverySiblings: () => request<{ data: import('./types').DiscoveryScanResult }>('/system-discovery/siblings'),
+  discoveryApply: (body: { confirm: boolean; overwrite?: boolean; paths?: Record<string, string> }) =>
+    request<{ data: import('./types').DiscoveryApplyResult; message?: string }>('/system-discovery/apply', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 }
 
 export const auditApi = {
