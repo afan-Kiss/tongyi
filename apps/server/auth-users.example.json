@@ -2,11 +2,14 @@
   "users": [
     {
       "username": "fanfan",
-      "password": "请自行修改密码"
+      "password": "请自行修改密码",
+      "role": "admin",
+      "displayName": "管理员"
     },
     {
       "username": "warehouse",
-      "password": "请自行修改密码"
+      "password": "请自行修改密码",
+      "role": "user"
     }
   ]
 }

@@ -51,6 +51,15 @@ import { LiveImportPage } from '@/pages/live-analysis/LiveImportPage'
 import { LiveSuggestionsPage } from '@/pages/live-analysis/LiveSuggestionsPage'
 import { LiveAnalysisSettingsPage } from '@/pages/live-analysis/LiveAnalysisSettingsPage'
 
+import { QianfanSyncLayout } from '@/pages/qianfan-sync/QianfanSyncLayout'
+import { QianfanSyncDashboardPage } from '@/pages/qianfan-sync/QianfanSyncDashboardPage'
+import { QianfanSyncOrdersPage } from '@/pages/qianfan-sync/QianfanSyncOrdersPage'
+import { QianfanSyncAfterSalesPage } from '@/pages/qianfan-sync/QianfanSyncAfterSalesPage'
+import { QianfanSyncReviewsPage } from '@/pages/qianfan-sync/QianfanSyncReviewsPage'
+import { QianfanSyncLivePage } from '@/pages/qianfan-sync/QianfanSyncLivePage'
+import { QianfanSyncLogsPage } from '@/pages/qianfan-sync/QianfanSyncLogsPage'
+import { QianfanSyncSettingsPage } from '@/pages/qianfan-sync/QianfanSyncSettingsPage'
+
 import { RequireFanfan } from '@/components/RequireFanfan'
 
 
@@ -115,6 +124,15 @@ const AuthenticatedRoutes: React.FC = () => (
               <Route path="import" element={<LiveImportPage />} />
               <Route path="suggestions" element={<LiveSuggestionsPage />} />
               <Route path="settings" element={<LiveAnalysisSettingsPage />} />
+            </Route>
+            <Route path="qianfan-sync" element={<QianfanSyncLayout />}>
+              <Route index element={<QianfanSyncDashboardPage />} />
+              <Route path="orders" element={<QianfanSyncOrdersPage />} />
+              <Route path="after-sales" element={<QianfanSyncAfterSalesPage />} />
+              <Route path="reviews" element={<QianfanSyncReviewsPage />} />
+              <Route path="live" element={<QianfanSyncLivePage />} />
+              <Route path="logs" element={<QianfanSyncLogsPage />} />
+              <Route path="settings" element={<QianfanSyncSettingsPage />} />
             </Route>
             <Route path="agents" element={<AgentCenterPage />} />
             <Route path="system-status" element={<SystemStatusPage />} />

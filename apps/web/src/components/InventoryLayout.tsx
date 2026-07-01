@@ -3,6 +3,7 @@ import { NavLink, Outlet } from 'react-router-dom'
 import {
   Activity,
   BarChart3,
+  Database,
   LayoutDashboard,
   MessageCircle,
   MonitorCog,
@@ -15,7 +16,6 @@ import {
   WalletCards,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
-import { isAuditViewer } from '@/lib/userActivity'
 
 const DESKTOP_NAV = [
   { to: '/inventory', icon: LayoutDashboard, label: '总览', end: true },
@@ -25,6 +25,7 @@ const DESKTOP_NAV = [
   { to: '/inventory/qianfan', icon: MessageCircle, label: '千帆客服' },
   { to: '/inventory/accounting', icon: WalletCards, label: '经营记账' },
   { to: '/inventory/live-analysis', icon: BarChart3, label: '主播分析' },
+  { to: '/inventory/qianfan-sync', icon: Database, label: '千帆数据' },
   { to: '/inventory/agents', icon: MonitorCog, label: '本地助手' },
   { to: '/inventory/system-status', icon: Activity, label: '系统状态' },
   { to: '/inventory/settings', icon: Settings, label: '设置' },
@@ -41,6 +42,7 @@ const MOBILE_MORE = [
   { to: '/inventory/inbound?type=register', icon: Tag, label: '标签入库' },
   { to: '/inventory/accounting', icon: WalletCards, label: '经营记账' },
   { to: '/inventory/live-analysis', icon: BarChart3, label: '主播分析' },
+  { to: '/inventory/qianfan-sync', icon: Database, label: '千帆数据' },
   { to: '/inventory/agents', icon: MonitorCog, label: '本地助手' },
   { to: '/inventory/system-status', icon: Activity, label: '系统状态' },
   { to: '/inventory/settings', icon: Settings, label: '设置' },
@@ -62,9 +64,9 @@ function navClass(isActive: boolean, compact = false) {
 }
 
 export const InventoryLayout: React.FC = () => {
-  const { username } = useAuth()
+  const { isAdmin } = useAuth()
   const [moreOpen, setMoreOpen] = useState(false)
-  const showAudit = isAuditViewer(username)
+  const showAudit = isAdmin
 
   const desktopNav = showAudit
     ? [...DESKTOP_NAV, { to: '/inventory/audit', icon: ScrollText, label: '操作日志', end: false as const }]

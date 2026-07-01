@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { Request } from 'express'
 import { prisma } from '../lib/prisma'
 import { getClientIp, getClientUserAgent } from '../lib/client-ip'
-import { getUserDisplayName } from './auth.service'
+import { getUserDisplayName, isAdminUser } from './auth.service'
 
 export const AUDIT_VIEWER_USERNAME = 'fanfan'
 
@@ -29,7 +29,7 @@ export interface ActivityListQuery {
 }
 
 export function isAuditViewer(username?: string | null): boolean {
-  return String(username || '').trim().toLowerCase() === AUDIT_VIEWER_USERNAME
+  return isAdminUser(username)
 }
 
 /** 操作日志展示名：优先各账号设置的 displayName，否则登录账号 */

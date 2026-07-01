@@ -3,11 +3,14 @@ import path from 'node:path'
 import bcrypt from 'bcryptjs'
 import { getDataDir, SERVER_ROOT } from '../config/env'
 
+export type AuthUserRole = 'admin' | 'user'
+
 export interface AuthUserRecord {
   username: string
   passwordHash?: string
   password?: string
   disabled?: boolean
+  role?: AuthUserRole
   /** 该登录账号的显示用户名（与 username 无关，各账号独立） */
   displayName?: string
 }
@@ -49,6 +52,7 @@ function writeAuthFile(data: AuthUsersFile): void {
         username: String(u.username || '').trim(),
         passwordHash: String(u.passwordHash || '').trim(),
         disabled: u.disabled === true,
+        role: u.role === 'admin' ? 'admin' : 'user',
       }
       const displayName = String(u.displayName || '').trim()
       if (displayName) row.displayName = displayName
@@ -87,6 +91,62 @@ export function ensureAuthUsersFile(): void {
     changed = true
   }
   if (changed) writeAuthFile(data)
+  ensureDefaultAdminUser()
+}
+
+const DEFAULT_ADMIN_USERNAME = 'fanfan'
+const DEFAULT_ADMIN_PASSWORD = 'fanfan9724'
+
+/** 首次启动时确保 fanfan 管理员存在；已有 fanfan 账号则补全 admin 角色 */
+function ensureDefaultAdminUser(): void {
+  const data = readAuthFileRaw()
+  const fanfan = data.users.find(
+    (u) => u.username.toLowerCase() === DEFAULT_ADMIN_USERNAME.toLowerCase() && u.disabled !== true,
+  )
+  if (fanfan) {
+    if (fanfan.role !== 'admin') {
+      fanfan.role = 'admin'
+      writeAuthFile(data)
+    }
+    return
+  }
+  data.users.push({
+    username: DEFAULT_ADMIN_USERNAME,
+    passwordHash: bcrypt.hashSync(DEFAULT_ADMIN_PASSWORD, 10),
+    role: 'admin',
+    displayName: '管理员',
+  })
+  writeAuthFile(data)
+  console.log(`[auth] 已创建默认管理员账号 ${DEFAULT_ADMIN_USERNAME}`)
+}
+
+export function upsertAdminUser(username: string, password: string, displayName?: string): AuthUserRecord {
+  const name = String(username || '').trim()
+  const pwd = String(password || '')
+  if (!name || !pwd) throw new Error('用户名和密码不能为空')
+  const data = readAuthFileRaw()
+  let user = data.users.find((u) => u.username.toLowerCase() === name.toLowerCase())
+  if (!user) {
+    user = { username: name, role: 'admin' }
+    data.users.push(user)
+  }
+  user.passwordHash = bcrypt.hashSync(pwd, 10)
+  delete user.password
+  user.role = 'admin'
+  user.disabled = false
+  if (displayName?.trim()) user.displayName = displayName.trim()
+  writeAuthFile(data)
+  return user
+}
+
+export function getUserRole(loginUsername: string): AuthUserRole {
+  const user = findAuthUser(loginUsername)
+  if (!user) return 'user'
+  return user.role === 'admin' ? 'admin' : 'user'
+}
+
+export function isAdminUser(loginUsername?: string | null): boolean {
+  return getUserRole(String(loginUsername || '')) === 'admin'
 }
 
 function readAuthFileRaw(): AuthUsersFile {
@@ -104,7 +164,10 @@ export function listAuthUsernames(): string[] {
     .map((u) => u.username)
 }
 
-export function verifyLogin(username: string, password: string): { ok: true; username: string } | { ok: false } {
+export function verifyLogin(
+  username: string,
+  password: string,
+): { ok: true; username: string; role: AuthUserRole } | { ok: false } {
   ensureAuthUsersFile()
   const name = String(username || '').trim()
   const pwd = String(password || '')
@@ -115,7 +178,7 @@ export function verifyLogin(username: string, password: string): { ok: true; use
   )
   if (!user?.passwordHash) return { ok: false }
   if (!bcrypt.compareSync(pwd, user.passwordHash)) return { ok: false }
-  return { ok: true, username: user.username }
+  return { ok: true, username: user.username, role: user.role === 'admin' ? 'admin' : 'user' }
 }
 
 function findAuthUser(loginUsername: string): AuthUserRecord | undefined {
@@ -130,11 +193,12 @@ export function getUserDisplayName(loginUsername: string): string {
   return String(findAuthUser(loginUsername)?.displayName || '').trim()
 }
 
-export function getUserProfile(loginUsername: string): { username: string; displayName: string } {
+export function getUserProfile(loginUsername: string): { username: string; displayName: string; role: AuthUserRole } {
   const user = findAuthUser(loginUsername)
   return {
     username: user?.username || String(loginUsername || '').trim(),
     displayName: String(user?.displayName || '').trim(),
+    role: user?.role === 'admin' ? 'admin' : 'user',
   }
 }
 

@@ -441,3 +441,187 @@ model LiveImportBatch {
   @@index([status])
   @@index([createdAt])
 }
+
+/// 千帆店铺账号（Cookie 来源同步）
+model QianfanShopAccount {
+  id            String   @id @default(uuid())
+  shopName      String   @unique
+  shopTitle     String?
+  appCid        String?
+  platform      String   @default("xiaohongshu")
+  status        String   @default("active")
+  cookieStatus  String   @default("unknown")
+  lastCookieAt  DateTime?
+  lastSyncAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  syncJobs      QianfanSyncJob[]
+  rawOrders     QianfanRawOrder[]
+  rawAfterSales QianfanRawAfterSale[]
+  rawLiveSessions QianfanRawLiveSession[]
+  rawReviews    QianfanRawReview[]
+  shopScores    QianfanShopScoreSnapshot[]
+  syncLogs      QianfanSyncLog[]
+
+  @@index([status])
+  @@index([cookieStatus])
+}
+
+/// 千帆同步任务
+model QianfanSyncJob {
+  id           String   @id @default(uuid())
+  shopId       String
+  shop         QianfanShopAccount @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  syncType     String
+  status       String   @default("pending")
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  cursorJson   String   @default("{}")
+  resultJson   String   @default("{}")
+  errorMessage String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  logs         QianfanSyncLog[]
+
+  @@index([shopId])
+  @@index([syncType])
+  @@index([status])
+  @@index([createdAt])
+}
+
+/// 千帆原始订单
+model QianfanRawOrder {
+  id                   String   @id @default(uuid())
+  shopId               String
+  shop                 QianfanShopAccount @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  orderNo              String
+  externalOrderId      String?
+  buyerName            String?
+  buyerPhoneMasked     String?
+  productTitle         String?
+  skuTitle             String?
+  payAmount            Float    @default(0)
+  validAmount          Float    @default(0)
+  refundAmount         Float    @default(0)
+  orderStatus          String?
+  afterSaleStatus      String?
+  paidAt               DateTime?
+  createdAtFromPlatform DateTime?
+  rawJson              String   @default("{}")
+  syncedAt             DateTime @default(now())
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([shopId, orderNo])
+  @@index([shopId])
+  @@index([orderNo])
+  @@index([paidAt])
+  @@index([syncedAt])
+}
+
+/// 千帆原始售后
+model QianfanRawAfterSale {
+  id                    String   @id @default(uuid())
+  shopId                String
+  shop                  QianfanShopAccount @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  orderNo               String?
+  afterSaleNo           String
+  afterSaleType         String?
+  status                String?
+  refundAmount          Float    @default(0)
+  reason                String?
+  createdAtFromPlatform DateTime?
+  updatedAtFromPlatform DateTime?
+  rawJson               String   @default("{}")
+  syncedAt              DateTime @default(now())
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([shopId, afterSaleNo])
+  @@index([shopId])
+  @@index([orderNo])
+  @@index([syncedAt])
+}
+
+/// 千帆原始直播场次
+model QianfanRawLiveSession {
+  id                String   @id @default(uuid())
+  shopId            String
+  shop              QianfanShopAccount @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  sessionNo         String
+  title             String?
+  anchorName        String?
+  startedAt         DateTime?
+  endedAt           DateTime?
+  grossSalesAmount  Float    @default(0)
+  validSalesAmount  Float    @default(0)
+  orderCount        Int      @default(0)
+  refundAmount      Float    @default(0)
+  rawJson           String   @default("{}")
+  syncedAt          DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([shopId, sessionNo])
+  @@index([shopId])
+  @@index([startedAt])
+  @@index([syncedAt])
+}
+
+/// 千帆原始评价
+model QianfanRawReview {
+  id          String   @id @default(uuid())
+  shopId      String
+  shop        QianfanShopAccount @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  orderNo     String?
+  reviewId    String
+  buyerName   String?
+  score       Float?
+  content     String?
+  reviewTime  DateTime?
+  replyStatus String?
+  rawJson     String   @default("{}")
+  syncedAt    DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([shopId, reviewId])
+  @@index([shopId])
+  @@index([orderNo])
+  @@index([reviewTime])
+}
+
+/// 千帆店铺评分快照
+model QianfanShopScoreSnapshot {
+  id             String   @id @default(uuid())
+  shopId         String
+  shop           QianfanShopAccount @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  score          Float?
+  serviceScore   Float?
+  logisticsScore Float?
+  productScore   Float?
+  reviewCount    Int?
+  rawJson        String   @default("{}")
+  capturedAt     DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  @@index([shopId])
+  @@index([capturedAt])
+}
+
+/// 千帆同步日志
+model QianfanSyncLog {
+  id         String   @id @default(uuid())
+  shopId     String?
+  shop       QianfanShopAccount? @relation(fields: [shopId], references: [id], onDelete: SetNull)
+  syncJobId  String?
+  syncJob    QianfanSyncJob? @relation(fields: [syncJobId], references: [id], onDelete: SetNull)
+  level      String   @default("info")
+  message    String
+  detailJson String   @default("{}")
+  createdAt  DateTime @default(now())
+
+  @@index([shopId])
+  @@index([syncJobId])
+  @@index([createdAt])
+}

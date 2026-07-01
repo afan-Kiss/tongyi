@@ -27,18 +27,19 @@ export const authApi = {
         authed: boolean
         username: string
         displayName?: string
+        role?: 'admin' | 'user'
         license?: { allowed: boolean; message: string; switchValue?: '开' | '关' | null }
       }
     }>('/auth/status'),
   profile: () =>
-    request<{ data: { username: string; displayName: string } }>('/auth/profile'),
+    request<{ data: { username: string; displayName: string; role?: 'admin' | 'user' } }>('/auth/profile'),
   saveProfile: (displayName: string) =>
     request<{ data: { username: string; displayName: string } }>('/auth/profile', {
       method: 'PUT',
       body: JSON.stringify({ displayName }),
     }),
   login: (username: string, password: string) =>
-    request<{ data: { username: string } }>('/auth/login', {
+    request<{ data: { username: string; role?: 'admin' | 'user' } }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ username, password }),
     }),
@@ -326,6 +327,65 @@ export const liveAnalysisApi = {
       '/live-analysis/import',
       { method: 'POST', body: JSON.stringify(body) },
     ),
+}
+
+export const qianfanSyncApi = {
+  overview: () =>
+    request<{
+      data: {
+        shops: Array<{
+          id: string
+          shopName: string
+          cookieStatus: string
+          cookieHint: string
+          lastSyncAt: string | null
+        }>
+        stats: {
+          shopCount: number
+          ordersToday: number
+          afterSalesToday: number
+          reviewsToday: number
+          lastSyncAt: string | null
+        }
+        hint: string
+      }
+    }>('/qianfan-sync/overview'),
+  shops: () => request<{ data: Array<Record<string, unknown>> }>('/qianfan-sync/shops'),
+  runAll: (syncType = 'all') =>
+    request<{ data: unknown[]; message?: string }>('/qianfan-sync/run-all', {
+      method: 'POST',
+      body: JSON.stringify({ syncType }),
+    }),
+  runOrders: () => request<{ data: unknown[] }>('/qianfan-sync/run-orders', { method: 'POST' }),
+  runAfterSales: () => request<{ data: unknown[] }>('/qianfan-sync/run-after-sales', { method: 'POST' }),
+  runLive: () => request<{ data: unknown[] }>('/qianfan-sync/run-live', { method: 'POST' }),
+  runReviews: () => request<{ data: unknown[] }>('/qianfan-sync/run-reviews', { method: 'POST' }),
+  jobs: (limit = 30) => request<{ data: Array<Record<string, unknown>> }>(`/qianfan-sync/jobs?limit=${limit}`),
+  orders: (params: Record<string, string | number>) => {
+    const q = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => q.set(k, String(v)))
+    return request<{ data: { items: Array<Record<string, unknown>>; total: number } }>(`/qianfan-sync/orders?${q}`)
+  },
+  afterSales: (params: Record<string, string | number>) => {
+    const q = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => q.set(k, String(v)))
+    return request<{ data: { items: Array<Record<string, unknown>>; total: number } }>(`/qianfan-sync/after-sales?${q}`)
+  },
+  liveSessions: (params: Record<string, string | number>) => {
+    const q = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => q.set(k, String(v)))
+    return request<{ data: { items: Array<Record<string, unknown>>; total: number } }>(`/qianfan-sync/live-sessions?${q}`)
+  },
+  reviews: (params: Record<string, string | number>) => {
+    const q = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => q.set(k, String(v)))
+    return request<{ data: { items: Array<Record<string, unknown>>; total: number } }>(`/qianfan-sync/reviews?${q}`)
+  },
+  logs: (params: Record<string, string | number>) => {
+    const q = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => q.set(k, String(v)))
+    return request<{ data: { items: Array<Record<string, unknown>>; total: number } }>(`/qianfan-sync/logs?${q}`)
+  },
 }
 
 export const platformApi = {

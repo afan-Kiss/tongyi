@@ -8,7 +8,7 @@ export function requireFanfan(req: Request, res: Response, next: NextFunction): 
     return
   }
   if (!isAuditViewer(req.session.username)) {
-    sendErr(res, '仅 fanfan 账号可查看操作日志', 403, 'AUDIT_FORBIDDEN')
+    sendErr(res, '仅管理员可查看操作日志', 403, 'AUDIT_FORBIDDEN')
     return
   }
   next()

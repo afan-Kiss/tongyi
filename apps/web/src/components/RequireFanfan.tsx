@@ -1,10 +1,9 @@
 import React from 'react'
 import { Navigate, Outlet } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
-import { isAuditViewer } from '@/lib/userActivity'
 
 export const RequireFanfan: React.FC = () => {
-  const { loading, authed, username } = useAuth()
+  const { loading, authed, isAdmin } = useAuth()
 
   if (loading) {
     return (
@@ -18,7 +17,7 @@ export const RequireFanfan: React.FC = () => {
     return <Navigate to="/login" replace />
   }
 
-  if (!isAuditViewer(username)) {
+  if (!isAdmin) {
     return <Navigate to="/inventory" replace />
   }
 

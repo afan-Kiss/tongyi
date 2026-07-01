@@ -67,11 +67,6 @@ export async function flushActivityQueue() {
   }
 }
 
-export const AUDIT_VIEWER_USERNAME = 'fanfan'
-
-export function isAuditViewer(username?: string | null): boolean {
-  return String(username || '').trim().toLowerCase() === AUDIT_VIEWER_USERNAME
-}
 
 export const ACTIVITY_CATEGORY_LABELS: Record<string, string> = {
   auth: '登录认证',

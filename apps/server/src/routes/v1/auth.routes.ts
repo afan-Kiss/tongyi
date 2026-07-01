@@ -2,6 +2,7 @@ import { Router } from 'express'
 import {
   getUserDisplayName,
   getUserProfile,
+  getUserRole,
   setUserDisplayName,
   verifyLogin,
 } from '../../services/auth.service'
@@ -24,10 +25,12 @@ authRouter.get('/license', async (_req, res) => {
 authRouter.get('/status', (req, res) => {
   const license = getCachedLicense()
   const username = req.session?.username || ''
+  const authed = Boolean(req.session?.authed)
   sendOk(res, {
-    authed: Boolean(req.session?.authed),
+    authed,
     username,
-    displayName: req.session?.authed ? getUserDisplayName(username) : '',
+    displayName: authed ? getUserDisplayName(username) : '',
+    role: authed ? getUserRole(username) : 'user',
     license: {
       allowed: license.allowed,
       message: license.message,
@@ -69,6 +72,7 @@ authRouter.post('/login', async (req, res) => {
   }
   req.session.authed = true
   req.session.username = result.username
+  req.session.role = result.role
   req.session.save((err) => {
     if (err) return sendErr(res, '登录状态保存失败', 500)
     recordUserActivityFromRequest(req, {
@@ -76,7 +80,7 @@ authRouter.post('/login', async (req, res) => {
       action: 'login_success',
       path: '/login',
     })
-    sendOk(res, { username: result.username })
+    sendOk(res, { username: result.username, role: result.role })
   })
 })
 
@@ -90,6 +94,7 @@ authRouter.post('/logout', (req, res) => {
   })
   req.session.authed = false
   req.session.username = undefined
+  req.session.role = undefined
   req.session.destroy((err) => {
     if (err) return sendErr(res, '退出失败', 500)
     res.clearCookie('jade.sid')

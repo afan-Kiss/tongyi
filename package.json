@@ -23,7 +23,8 @@
     "import:legacy-accounting": "node scripts/import-legacy-accounting.js",
     "import:legacy-live": "node scripts/import-legacy-live-analysis.js",
     "check:deploy": "node scripts/check-before-deploy.js",
-    "check:valid-revenue": "node scripts/check-valid-revenue-rules.js"
+    "check:valid-revenue": "node scripts/check-valid-revenue-rules.js",
+    "setup:admin": "node scripts/setup-admin.js"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",

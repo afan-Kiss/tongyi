@@ -6,6 +6,8 @@ import { defaultLicenseInfo, type LicenseInfo } from '@/lib/license'
 
 
 
+export type AuthUserRole = 'admin' | 'user'
+
 type AuthState = {
 
   loading: boolean
@@ -15,6 +17,10 @@ type AuthState = {
   username: string
 
   displayName: string
+
+  role: AuthUserRole
+
+  isAdmin: boolean
 
   license: LicenseInfo
 
@@ -64,6 +70,8 @@ function applyAuthStatus(
 
   setDisplayName: (v: string) => void,
 
+  setRole: (v: AuthUserRole) => void,
+
   setLicense: (v: LicenseInfo) => void,
 
 ) {
@@ -73,6 +81,8 @@ function applyAuthStatus(
   setUsername(String(r.data.username || ''))
 
   setDisplayName(String(r.data.displayName || '').trim())
+
+  setRole(r.data.role === 'admin' ? 'admin' : 'user')
 
   if (r.data.license) setLicense(parseLicense(r.data.license))
 
@@ -92,9 +102,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [displayName, setDisplayName] = useState('')
 
+  const [role, setRole] = useState<AuthUserRole>('user')
+
   const [license, setLicense] = useState<LicenseInfo>(defaultLicenseInfo)
 
-
+  const isAdmin = role === 'admin'
 
   const refreshLicense = useCallback(async () => {
 
@@ -124,7 +136,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     try {
 
-      applyAuthStatus(await authApi.status(), setAuthed, setUsername, setDisplayName, setLicense)
+      applyAuthStatus(await authApi.status(), setAuthed, setUsername, setDisplayName, setRole, setLicense)
 
     } catch (e) {
 
@@ -138,13 +150,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         setDisplayName('')
 
+        setRole('user')
+
       } else {
 
         try {
 
           await new Promise((r) => setTimeout(r, 600))
 
-          applyAuthStatus(await authApi.status(), setAuthed, setUsername, setDisplayName, setLicense)
+          applyAuthStatus(await authApi.status(), setAuthed, setUsername, setDisplayName, setRole, setLicense)
 
         } catch (e2) {
 
@@ -157,6 +171,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setUsername('')
 
             setDisplayName('')
+
+            setRole('user')
 
           }
 
@@ -182,7 +198,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     try {
 
-      applyAuthStatus(await authApi.status(), setAuthed, setUsername, setDisplayName, setLicense)
+      applyAuthStatus(await authApi.status(), setAuthed, setUsername, setDisplayName, setRole, setLicense)
 
     } catch {
 
@@ -270,6 +286,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     setUsername(String(r.data.username || user))
 
+    setRole(r.data.role === 'admin' ? 'admin' : 'user')
+
     try {
 
       const profile = await authApi.profile()
@@ -300,6 +318,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       setDisplayName('')
 
+      setRole('user')
+
     }
 
   }, [])
@@ -318,6 +338,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       displayName,
 
+      role,
+
+      isAdmin,
+
       license,
 
       licenseLoading,
@@ -332,7 +356,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     }),
 
-    [loading, authed, username, displayName, license, licenseLoading, refresh, refreshLicense, login, logout],
+    [loading, authed, username, displayName, role, isAdmin, license, licenseLoading, refresh, refreshLicense, login, logout],
 
   )
 

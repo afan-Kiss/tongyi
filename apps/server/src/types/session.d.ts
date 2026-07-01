@@ -4,5 +4,6 @@ declare module 'express-session' {
   interface SessionData {
     authed?: boolean
     username?: string
+    role?: 'admin' | 'user'
   }
 }
