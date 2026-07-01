@@ -1,9 +1,9 @@
-# 和田玉手镯管理系统 — 架构与业务说明
+# 统一经营台 / 和田玉统一经营系统 — 架构与业务说明
 
 ## 可靠性加固要点
 
 - **Excel 部分成功**：数据库先写入，Excel 失败时返回 `partialSuccess`，扫码页可「重试 Excel 同步」
-- **祥钰单端口**：`/xiangyu-proxy` 反代到 4726，外网/FRP 只需映射 **4725**
+- **祥钰单端口**：`/xiangyu-proxy` 反代到 1213，外网/FRP 只需映射 **1212**
 - **降级模式**：`/api/v1/settings/status` 返回 `degraded`，祥钰离线时禁用「打包拍照发送」Tab
 - **进程守护**：`start.bat` → `npm run start:all`（supervisor 自动重启主进程）
 
@@ -13,28 +13,31 @@
 
 | 板块 | 路由 | 说明 |
 |------|------|------|
-| **出库入库** | `/inventory/*` | 扫码枪登记、库存查询、手机拍照、Excel 同步 |
+| **扫码 / 库存** | `/inventory/*` | 扫码登记、库存查询、手机拍照、Excel 同步 |
 | **打包拍照发送** | `/xiangyu` | 内嵌祥钰系统（订单拍照合成、标注、发送买家） |
 
 ```
-浏览器 http://本机:4725
-├── 顶部导航：出库入库 | 打包拍照发送
-├── /inventory/*  → 出入库 React 应用
-└── /xiangyu      → iframe 嵌入祥钰 Web (4726)
+浏览器 http://本机:1212
+├── 顶部导航：总览 | 扫码 | 库存 | 千帆 | …
+├── /inventory/*  → 统一经营 React 应用
+└── /xiangyu      → iframe 嵌入祥钰 Web (1213)
 ```
 
-## 端口规划（从 4725 起）
+## 端口规划（1212 起）
 
 | 端口 | 服务 | 说明 |
 |------|------|------|
-| **4725** | 主门户 | Express API + React 静态资源（单端口） |
-| **4726** | 祥钰 Web | 订单/拍照/合成/发送（由主后端自动拉起） |
-| **4727** | 祥钰 Bridge | 千帆发消息中继（本机 only） |
-| **4728** | Excel 桥接 | Python win32com 实时写 Excel |
-| **4729** | 打印 Agent | 热敏机预留（可选） |
-| **4730** | 千帆 DevTools | 千帆客服工作台调试端口（外部程序） |
+| **1212** | 主门户 | Express API + React 静态资源（单端口） |
+| **1213** | 祥钰 Web | 订单/拍照/合成/发送（由主后端自动拉起） |
+| **1214** | 祥钰 Bridge | 千帆发消息中继（本机 only） |
+| **1215** | Excel 桥接 | Python win32com 实时写 Excel |
+| **1216** | 打印 Agent | 热敏机（可选） |
+| **1217** | Scanner API | 本地 Worker / 记账读取 |
+| **1218** | Mobile HTTPS | 手机拍照专用 HTTPS |
+| **9322** | 千帆 DevTools | 外部千帆机器人（暂不改动） |
+| **9323** | 千帆本地 API | 外部千帆机器人（暂不改动） |
 
-开发模式：Vite `5173` 代理 API 到 `4725`。
+开发模式：Vite `5173` 代理 API 到 `1212`。
 
 ## 分层架构
 
@@ -52,7 +55,7 @@
 └───────────────┬─────────────────────────┬───────────────┘
                 │                         │
     ┌───────────▼──────────┐   ┌──────────▼──────────────┐
-    │ excel-bridge :4728   │   │ 祥钰系统 :4726/:4727     │
+    │ excel-bridge :1215   │   │ 祥钰系统 :1213/:1214     │
     │ win32com 写 Excel    │   │ 功能保持原样，仅改端口     │
     └──────────────────────┘   └───────────────────────────┘
 ```
@@ -106,7 +109,7 @@
 ## 打包拍照发送 — 祥钰板块
 
 - 祥钰源码位于 **`apps/xiangyu`**（已内置，不依赖外部目录）
-- iframe 使用同域路径 `/xiangyu-proxy/`（由主服务 4725 反代到祥钰 4726）
+- iframe 使用同域路径 `/xiangyu-proxy/`（由主服务 1212 反代到祥钰 1213）
 - 主后端启动时自动拉起祥钰 Web + Bridge
 - 祥钰 `config.json` 端口不一致时默认**仅警告**；设 `XIANGYU_SYNC_CONFIG=true` 可自动同步
 
@@ -123,7 +126,7 @@
 ```bat
 start.bat          # 构建 + 启动（推荐）
 npm run start      # 仅后端（生产）
-npm run dev        # 前端 5173 + 后端 4725
+npm run dev        # 前端 5173 + 后端 1212
 npm run start:all  # supervisor 守护重启
 ```
 
@@ -132,10 +135,10 @@ npm run start:all  # supervisor 守护重启
 ## 环境变量（apps/server/.env）
 
 ```env
-PORT=4725
-EXCEL_BRIDGE_URL=http://127.0.0.1:4728
-XIANGYU_PORT=4726
-XIANGYU_BRIDGE_PORT=4727
-QIANFAN_DEVTOOLS_PORT=4730
+PORT=1212
+EXCEL_BRIDGE_URL=http://127.0.0.1:1215
+XIANGYU_PORT=1213
+XIANGYU_BRIDGE_PORT=1214
+QIANFAN_DEVTOOLS_PORT=9322
 XIANGYU_ENABLED=true
 ```

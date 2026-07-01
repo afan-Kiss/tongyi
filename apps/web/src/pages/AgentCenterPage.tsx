@@ -118,7 +118,7 @@ export const AgentCenterPage: React.FC = () => {
             ) : (
               <EmptyState
                 title="还没有本地助手在线"
-                description="请在本机运行 npm run local-agent，或等待未来 Windows EXE。离线时不影响扫码出库。"
+                description="请在本机运行：npm run local-agent -- --server http://127.0.0.1:1212 --qianfan-root &quot;E:\我的软件源码\千帆中转机器人&quot;。离线时不影响扫码出库。"
               />
             )}
           </PremiumCard>

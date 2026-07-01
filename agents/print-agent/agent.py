@@ -412,7 +412,7 @@ if __name__ == "__main__":
     # threaded=True：避免单次打印卡住 Win32 驱动时，/health 与其它请求全部无响应
     app.run(
         host="127.0.0.1",
-        port=int(os.environ.get("PRINT_AGENT_PORT", "4729")),
+        port=int(os.environ.get("PRINT_AGENT_PORT", "1216")),
         debug=False,
         threaded=True,
     )

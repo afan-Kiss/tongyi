@@ -9,7 +9,7 @@ cmds = [
     "systemctl list-units --type=service | grep -E 'xray|nginx|frps' || true",
     "curl -sI http://127.0.0.1/ | head -5 || true",
     "curl -sI http://churuku.duckdns.org/ | head -8 || true",
-    "ss -tlnp | grep -E ':80|:443|:4725|:7000'",
+    "ss -tlnp | grep -E ':80|:443|:1212|:7000'",
     "cat /etc/nginx/sites-enabled/jade-inventory",
 ]
 for c in cmds:

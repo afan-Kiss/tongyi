@@ -68,7 +68,7 @@ function resolveLanIp(
 
 /**
  * 手机拍照页 URL（客户端兜底；优先使用服务端 /photo-relay/station 返回的 mobileUrl）。
- * 同 WiFi 优先内网自签 HTTPS（4730）；禁止给手机生成 127.0.0.1 链接。
+ * 同 WiFi 优先内网自签 HTTPS（1218）；禁止给手机生成 127.0.0.1 链接。
  */
 export function buildMobileCameraUrl(
   sessionId: string,
@@ -77,9 +77,9 @@ export function buildMobileCameraUrl(
 ): string {
   const path = mobileCameraPath(sessionId)
   const lanIp = resolveLanIp(status, settings)
-  const httpsPort = status?.mobileHttpsPort || (lanIp ? 4730 : 0)
+  const httpsPort = status?.mobileHttpsPort || (lanIp ? 1218 : 0)
   const pubHttps = publicHttpsBase(settings)
-  const httpPort = status?.port || 4725
+  const httpPort = status?.port || 1212
 
   if (lanIp && httpsPort > 0) {
     return lanHttpsUrl(lanIp, httpsPort, path)
@@ -131,13 +131,13 @@ export function isSecureMobileCameraUrl(url: string): boolean {
   try {
     const u = new URL(url)
     if (u.protocol !== 'https:') return false
-    return isLocalHost(u.hostname) || !isPrivateLanHost(u.hostname) || u.port === '4730'
+    return isLocalHost(u.hostname) || !isPrivateLanHost(u.hostname) || u.port === '1218'
   } catch {
     return false
   }
 }
 
-/** 内网自签 HTTPS（4730） */
+/** 内网自签 HTTPS（1218） */
 export function isSecureLanMobileCameraUrl(url: string): boolean {
   try {
     const u = new URL(url)
@@ -178,11 +178,11 @@ export function buildLanXiangyuUrl(
   status?: Pick<SystemStatus, 'lanIps' | 'port' | 'mobileHttpsPort'> | null,
 ): string | null {
   const lanIp = pickLanIp(status?.lanIps || [])
-  const httpsPort = status?.mobileHttpsPort || (lanIp ? 4730 : 0)
+  const httpsPort = status?.mobileHttpsPort || (lanIp ? 1218 : 0)
   if (lanIp && httpsPort > 0) {
     return lanHttpsUrl(lanIp, httpsPort, '/xiangyu')
   }
-  const httpPort = status?.port || 4725
+  const httpPort = status?.port || 1212
   if (lanIp) return `http://${lanIp}:${httpPort}/xiangyu`
   return null
 }

@@ -39,8 +39,8 @@ export const XiangyuAccessQrDialog: React.FC<Props> = ({ open, onClose }) => {
           info
             ? {
                 lanIps: info.lanIps || [],
-                port: info.port ?? 4725,
-                mobileHttpsPort: info.mobileHttpsPort ?? 4730,
+                port: info.port ?? 1212,
+                mobileHttpsPort: info.mobileHttpsPort ?? 1218,
               }
             : null,
         )

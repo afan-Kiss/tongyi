@@ -47,7 +47,7 @@ export function buildPublicMobileCameraUrl(sessionId: string, publicUrl?: string
   }
 }
 
-/** 同 WiFi 内网自签 HTTPS（4730，速度快） */
+/** 同 WiFi 内网自签 HTTPS（1218，速度快） */
 export function buildLanMobileCameraUrl(sessionId: string): string | null {
   const lanIp = pickLanIp(getLanIps())
   const httpsPort = isMobileHttpsEnabled() ? getMobileHttpsPort() : 0

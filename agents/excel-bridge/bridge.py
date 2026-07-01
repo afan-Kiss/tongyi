@@ -788,7 +788,7 @@ def snapshot_by_cert(cert_no: str):
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("EXCEL_BRIDGE_PORT", "4728"))
+    port = int(os.environ.get("EXCEL_BRIDGE_PORT", "1215"))
     logger.info("Excel 桥接服务启动，监听 127.0.0.1:%s", port)
     try:
         from waitress import serve

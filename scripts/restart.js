@@ -6,7 +6,7 @@ const { spawn, execSync } = require('node:child_process')
 const path = require('node:path')
 
 const ROOT = path.resolve(__dirname, '..')
-const PORTS = [4725, 4726, 4727, 4728, 4729]
+const PORTS = [1212, 1213, 1214, 1215, 1216, 1217, 1218]
 
 function killPort(port) {
   if (process.platform !== 'win32') return

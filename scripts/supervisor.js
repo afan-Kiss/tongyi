@@ -27,7 +27,7 @@ function log(msg) {
 
 function startBackend() {
   if (shuttingDown) return;
-  log('[supervisor] 启动后端（4725 + Excel桥接 + 祥钰）');
+  log('[supervisor] 启动后端（1212 + Excel桥接 + 祥钰）');
   child = spawn(process.execPath, [SERVER_ENTRY], {
     cwd: SERVER_DIR,
     stdio: 'inherit',
@@ -55,8 +55,8 @@ process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
 log('========================================');
-log('和田玉手镯管理系统 — 服务守护进程');
-log('本机: http://127.0.0.1:4725/inventory');
+log('统一经营台 — 服务守护进程');
+log('本机: http://127.0.0.1:1212/inventory');
 log('按 Ctrl+C 停止');
 log('========================================');
 

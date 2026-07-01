@@ -1,6 +1,6 @@
 /**
  * 本地助手最小实现（HTTP 轮询版）
- * 用法：node scripts/local-agent.js --server http://127.0.0.1:4725
+ * 用法：node scripts/local-agent.js --server http://127.0.0.1:1212
  */
 const os = require('node:os')
 const path = require('node:path')
@@ -13,7 +13,7 @@ function arg(name, fallback = '') {
   return idx >= 0 ? String(args[idx + 1] || fallback) : fallback
 }
 
-const SERVER = (arg('--server', process.env.AGENT_SERVER_URL || 'http://127.0.0.1:4725')).replace(/\/$/, '')
+const SERVER = (arg('--server', process.env.AGENT_SERVER_URL || 'http://127.0.0.1:1212')).replace(/\/$/, '')
 const MACHINE_CODE = arg('--machine', process.env.AGENT_MACHINE_CODE || os.hostname())
 const MACHINE_NAME = arg('--name', process.env.AGENT_MACHINE_NAME || `${os.hostname()} 本地助手`)
 const POLL_MS = Number(arg('--poll', process.env.AGENT_POLL_MS || '3000')) || 3000

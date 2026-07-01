@@ -8,7 +8,7 @@ const EXAMPLE_PATH = path.join(ROOT, 'config.example.json');
 
 const DEFAULT_CONFIG = {
   server: {
-    port: 4726,
+    port: 1213,
     host: '0.0.0.0',
     sessionSecret: 'xiangyu-change-me',
   },
@@ -30,7 +30,7 @@ const DEFAULT_CONFIG = {
   },
   bridge: {
     mode: 'http',
-    url: 'http://127.0.0.1:4727/send',
+    url: 'http://127.0.0.1:1214/send',
     timeoutMs: 120000,
     devtoolsPort: 9322,
     qianfanDataDir: 'E:\\我的软件源码\\千帆中转机器人\\dist\\win-unpacked\\data',

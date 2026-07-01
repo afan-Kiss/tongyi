@@ -31,6 +31,6 @@ if code != 0:
     run(f"certbot certonly --webroot -w /var/www/html -d {DOMAIN} --non-interactive --agree-tos --register-unsafely-without-email || true")
 run("nginx -t && systemctl reload nginx")
 run("curl -sI https://churuku.duckdns.org/ | head -8 || true")
-run("ss -tlnp | grep -E ':80|:443|:4725'")
+run("ss -tlnp | grep -E ':80|:443|:1212'")
 client.close()
 print("done, certbot code", code)

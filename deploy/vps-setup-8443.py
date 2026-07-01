@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-在 VPS 8443 提供 HTTPS 反代到 FRP 4725；80 提供 HTTP。
+在 VPS 8443 提供 HTTPS 反代到 FRP 1212；80 提供 HTTP。
 不修改 443，不停止 x-ui / xray。
 """
 import os
@@ -25,7 +25,7 @@ server {{
     }}
 
     location / {{
-        proxy_pass http://127.0.0.1:4725;
+        proxy_pass http://127.0.0.1:1212;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -49,7 +49,7 @@ server {{
     client_max_body_size 100m;
 
     location / {{
-        proxy_pass http://127.0.0.1:4725;
+        proxy_pass http://127.0.0.1:1212;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -109,8 +109,8 @@ def main() -> int:
 
     run(client, "systemctl enable nginx")
     run(client, "systemctl restart nginx")
-    run(client, "ufw allow 80/tcp 2>/dev/null; ufw allow 8443/tcp 2>/dev/null; ufw allow 4725/tcp 2>/dev/null; true")
-    run(client, "ss -tlnp | grep -E ':80|:443|:8443|:4725' || true")
+    run(client, "ufw allow 80/tcp 2>/dev/null; ufw allow 8443/tcp 2>/dev/null; ufw allow 1212/tcp 2>/dev/null; true")
+    run(client, "ss -tlnp | grep -E ':80|:443|:8443|:1212' || true")
     run(client, "systemctl is-active nginx x-ui frps")
     run(client, f"curl -skI https://127.0.0.1:8443/inventory -H 'Host: {DOMAIN}' | head -8")
     run(client, f"curl -sI http://127.0.0.1/inventory -H 'Host: {DOMAIN}' | head -8")
@@ -119,7 +119,7 @@ def main() -> int:
     print("\n=== 外网地址 ===")
     print(f"HTTPS（推荐手机）: https://{DOMAIN}:8443/inventory")
     print(f"HTTP:            http://{DOMAIN}/inventory")
-    print(f"直连 FRP:        http://{HOST}:4725/inventory")
+    print(f"直连 FRP:        http://{HOST}:1212/inventory")
     print("443 / x-ui 未改动")
     return 0
 

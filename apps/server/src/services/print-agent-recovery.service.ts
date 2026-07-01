@@ -108,7 +108,7 @@ export function classifyPrintFailure(raw: string): { code: string; solutions: st
       solutions: [
         '确认璞趣桌面软件已打开，且打印机 PUQU 已连接、有纸、无报错灯',
         '在 Windows「设备和打印机」里取消卡住的打印任务',
-        '若仍失败：关闭启动窗口后重新运行 start.bat（系统会自动清理 4729 端口）',
+        '若仍失败：关闭启动窗口后重新运行 start.bat（系统会自动清理 1216 端口）',
       ],
     }
   }
@@ -124,7 +124,7 @@ export function classifyPrintFailure(raw: string): { code: string; solutions: st
     return {
       code: 'AGENT_OFFLINE',
       solutions: [
-        '系统已尝试自动重启打印 Agent（4729 端口）',
+        '系统已尝试自动重启打印 Agent（1216 端口）',
         '打开设置页，看「打印 Agent」是否显示在线',
         '若仍离线：运行 stop.bat 再 start.bat，或检查 agents/print-agent 是否被安全软件拦截',
       ],

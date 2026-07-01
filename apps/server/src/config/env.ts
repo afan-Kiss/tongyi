@@ -13,26 +13,39 @@ export const MONOREPO_ROOT = path.resolve(SERVER_ROOT, '../..')
 
 
 
-/** 统一端口规划（从 4725 起，避免 3xxx 端口冲突） */
+/** 统一端口规划（1212 起，统一经营台专用端口段） */
 
 export const DEFAULT_PORTS = {
 
-  main: 4725,
+  main: 1212,
 
-  xiangyuWeb: 4726,
+  xiangyuWeb: 1213,
 
-  xiangyuBridge: 4727,
+  xiangyuBridge: 1214,
 
-  excelBridge: 4728,
+  excelBridge: 1215,
 
-  printAgent: 4729,
+  printAgent: 1216,
 
   /** 本地 Worker / 记账系统读取接口（仅 127.0.0.1） */
-  scannerApi: 7789,
+  scannerApi: 1217,
 
   /** 手机拍照专用 HTTPS（getUserMedia 需安全上下文） */
-  mobileHttps: 4730,
+  mobileHttps: 1218,
 
+  /** 第三阶段预留：Local Agent WebSocket */
+  localAgentWs: 1219,
+
+  /** 第三阶段预留：Local Agent HTTP API */
+  localAgentHttp: 1220,
+
+  /** 预留：千帆 Relay 代理 */
+  qianfanRelayProxy: 1221,
+
+  /** 预留：诊断 / 调试 */
+  diagnostics: 1222,
+
+  /** 外部千帆机器人 DevTools（暂不改动） */
   qianfanDevtools: 9322,
 
 } as const
@@ -256,7 +269,7 @@ export function getXiangyuBridgeConfig(): XiangyuBridgeConfig {
   )
   const bridge = xiangyuCfg?.bridge
   return {
-    devtoolsPort: bridge?.devtoolsPort && bridge.devtoolsPort !== 4730
+    devtoolsPort: bridge?.devtoolsPort && bridge.devtoolsPort !== DEFAULT_PORTS.mobileHttps
       ? bridge.devtoolsPort
       : (readQianfanBotDevtoolsPort() || bridge?.devtoolsPort || defaults.devtoolsPort),
     qianfanDataDir: bridge?.qianfanDataDir?.trim() || defaults.qianfanDataDir,

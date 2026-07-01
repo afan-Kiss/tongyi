@@ -25,7 +25,7 @@ const {
 } = require('./qianfan-capture-lib');
 const { triggerNativeSyncAfterSend, installNativeSyncBridge, parseSenderAppUid, buildSellerExtension } = require('./qianfan-native-sync');
 
-const PORT = Number(process.env.BRIDGE_PORT || 4727);
+const PORT = Number(process.env.BRIDGE_PORT || 1214);
 const BRIDGE_VERSION = '3.0.0-send-worker';
 const DEVTOOLS_HOST = process.env.DEVTOOLS_HOST || '127.0.0.1';
 const SHOP_SCAN_MS = 10000;

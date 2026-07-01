@@ -15,7 +15,7 @@ function classifyLocal(raw: string): string[] {
       '若仍失败：关闭启动窗口后重新运行 start.bat',
     ]
   }
-  if (msg.includes('agent') || msg.includes('4729') || msg.includes('无响应') || msg.includes('离线')) {
+  if (msg.includes('agent') || msg.includes('1216') || msg.includes('无响应') || msg.includes('离线')) {
     return [
       '系统会自动尝试重启打印 Agent；稍等几秒后重试',
       '打开设置页，看「打印 Agent」是否在线',

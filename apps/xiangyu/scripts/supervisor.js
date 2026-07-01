@@ -1,5 +1,5 @@
 /**
- * 单终端启动：Web(4726) + Bridge(4727)
+ * 单终端启动：Web(1213) + Bridge(1214)
  * 子进程异常退出后自动重启
  */
 const { spawn } = require('child_process');
@@ -144,13 +144,13 @@ const services = [
     tag: 'web',
     command: process.execPath,
     args: ['server/index.js'],
-    port: 4726,
+    port: 1213,
   },
   {
     tag: 'bridge',
     command: process.execPath,
     args: ['scripts/bridge-relay.js'],
-    port: 4727,
+    port: 1214,
   },
 ];
 
@@ -174,7 +174,7 @@ process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
 log('supervisor', '祥钰系统启动中…');
-log('supervisor', `Web → http://localhost:4726  |  Bridge → http://127.0.0.1:4727`);
+log('supervisor', `Web → http://localhost:1213  |  Bridge → http://127.0.0.1:1214`);
 log('supervisor', '按 Ctrl+C 停止全部服务\n');
 
 for (const def of services) {

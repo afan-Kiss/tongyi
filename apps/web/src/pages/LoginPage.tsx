@@ -59,7 +59,8 @@ export const LoginPage: React.FC = () => {
             <LockKeyhole className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold text-slate-900">和田玉手镯管理系统</h1>
+            <h1 className="text-lg font-semibold text-slate-900">统一经营台</h1>
+            <p className="text-xs text-slate-400">和田玉统一经营系统</p>
             <p className="text-sm text-slate-500">请登录后继续使用</p>
           </div>
         </div>

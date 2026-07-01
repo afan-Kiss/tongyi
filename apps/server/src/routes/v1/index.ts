@@ -22,7 +22,7 @@ v1Router.use(auditApiLogMiddleware)
 v1Router.get('/health', (_req, res) => {
   res.json({
     ok: true,
-    service: 'jade-inventory-api',
+    service: 'tongyi-operations-api',
     version: 'v1',
     mobile: getMobileCameraNetworkInfo(),
   })

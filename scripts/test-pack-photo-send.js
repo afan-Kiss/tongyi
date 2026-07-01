@@ -2,7 +2,7 @@
  * 打包拍照端到端测试：搜索买家 → 发测试图
  * 用法: node scripts/test-pack-photo-send.js [买家昵称关键词]
  */
-const BASE = process.env.XIANGYU_URL || 'http://127.0.0.1:4726';
+const BASE = process.env.XIANGYU_URL || 'http://127.0.0.1:1213';
 const KEYWORD = process.argv[2] || '饭饭';
 
 // 最小有效 JPEG (1x1 红像素)

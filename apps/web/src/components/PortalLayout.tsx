@@ -50,7 +50,7 @@ export const PortalLayout: React.FC = () => {
       >
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-2 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:py-3 md:px-4">
           <div className="min-w-0 flex-1">
-            <h1 className="truncate text-base font-semibold text-slate-900">和田玉手镯管理系统</h1>
+            <h1 className="truncate text-base font-semibold text-slate-900">统一经营台</h1>
             <p className="hidden text-[11px] text-slate-500 sm:block">出库入库 · 打包拍照发送</p>
           </div>
           <div className="flex flex-wrap items-center gap-2 sm:justify-end">

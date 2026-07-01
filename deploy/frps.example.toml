@@ -8,5 +8,5 @@ auth.token = "请替换为强随机 token"
 
 # 允许映射的端口
 allowPorts = [
-  { start = 4725, end = 4725 }
+  { start = 1212, end = 1212 }
 ]

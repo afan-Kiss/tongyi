@@ -2,7 +2,7 @@
   "name": "@jade/xiangyu",
   "version": "0.1.0",
   "private": true,
-  "description": "祥钰珠宝 - 订单拍照合成发送（内置于扫码枪出入库系统）",
+  "description": "祥钰珠宝 - 订单拍照合成发送（内置于统一经营台）",
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",

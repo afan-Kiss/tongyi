@@ -6,9 +6,9 @@ import path from 'node:path'
 
 
 
-const API_TARGET = 'http://127.0.0.1:4725'
+const API_TARGET = 'http://127.0.0.1:1212'
 
-const XIANGYU_TARGET = 'http://127.0.0.1:4726'
+const XIANGYU_TARGET = 'http://127.0.0.1:1213'
 
 
 

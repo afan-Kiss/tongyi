@@ -30,7 +30,7 @@ cat > /etc/frp/frps.toml <<EOF
 bindPort = 7000
 auth.method = "token"
 auth.token = "${FRP_TOKEN}"
-allowPorts = [{ start = 4725, end = 4725 }]
+allowPorts = [{ start = 1212, end = 1212 }]
 EOF
 
 cat > /etc/systemd/system/frps.service <<'EOF'

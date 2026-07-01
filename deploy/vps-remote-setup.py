@@ -88,7 +88,7 @@ def main() -> int:
 
     run(client, "systemctl status frps --no-pager | head -20")
     run(client, "systemctl status nginx --no-pager | head -20")
-    run(client, "ss -tlnp | grep -E ':80|:443|:4725|:7000' || true")
+    run(client, "ss -tlnp | grep -E ':80|:443|:1212|:7000' || true")
 
     client.close()
     print("\nVPS 配置完成。")

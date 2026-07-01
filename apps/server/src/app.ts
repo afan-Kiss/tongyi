@@ -39,7 +39,7 @@ export function createApp() {
   app.use('/api/v1/auth', authRouter)
   app.use('/api/v1', requireApiAuth, v1Router)
   app.get('/api/health', (_req, res) => {
-    res.json({ ok: true, service: 'jade-inventory-api', version: 'v1' })
+    res.json({ ok: true, service: 'tongyi-operations-api', version: 'v1' })
   })
 
   mountXiangyuProxy(app)

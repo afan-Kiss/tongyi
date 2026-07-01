@@ -8,7 +8,7 @@ echo 正在停止本系统相关进程...
 
 powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name = 'node.exe'\" | Where-Object { $_.CommandLine -like '*supervisor.js*' -or $_.CommandLine -like '*bridge-relay.js*' } | ForEach-Object { Write-Host ('结束 node PID ' + $_.ProcessId + ' ' + ($_.CommandLine -replace '.*\\','')); Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
 
-for %%P in (4725 4726 4727 4728 4729 7789) do (
+for %%P in (1212 1213 1214 1215 1216 1217 1218) do (
   for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%%P " ^| findstr "LISTENING"') do (
     echo 结束 %%P 端口进程 PID %%a
     taskkill /F /PID %%a >nul 2>&1

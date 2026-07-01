@@ -9,9 +9,9 @@ USER = os.environ.get("VPS_USER", "root")
 PASSWORD = os.environ.get("VPS_PASSWORD", "")
 
 CMDS = [
-    "ss -tlnp | grep -E ':80|:443|:4725|:7000|:8443' || true",
+    "ss -tlnp | grep -E ':80|:443|:1212|:7000|:8443' || true",
     "systemctl is-active nginx frps x-ui 2>/dev/null || true",
-    "curl -sI -m 5 http://127.0.0.1:4725/inventory | head -5",
+    "curl -sI -m 5 http://127.0.0.1:1212/inventory | head -5",
     "curl -sI -m 5 http://127.0.0.1/ | head -5 || true",
     "ls -la /etc/letsencrypt/live/churuku.duckdns.org/ 2>/dev/null || echo no-cert",
     "cat /etc/nginx/sites-enabled/jade-inventory 2>/dev/null | head -80",

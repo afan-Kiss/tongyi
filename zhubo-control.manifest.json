@@ -1,29 +1,30 @@
 {
   "manifestVersion": 1,
-  "name": "扫码枪登记出入库系统",
-  "code": "jade-scan",
-  "category": "扫码/出入库",
-  "gitRemote": "https://github.com/afan-Kiss/saomaqiang.git",
-  "localPath": "E:\\我的软件源码\\扫码枪登记出入库系统",
+  "name": "统一经营台 / 和田玉统一经营系统",
+  "code": "tongyi-operations",
+  "category": "统一经营",
+  "gitRemote": "https://github.com/afan-Kiss/tongyi",
+  "localPath": "E:\\我的软件源码\\tongyi",
   "desktopStartCommand": "npm run dev",
   "localWebUrl": "http://127.0.0.1:5173",
-  "localHealthUrl": "http://127.0.0.1:4725/api/health",
+  "localHealthUrl": "http://127.0.0.1:1212/api/health",
   "healthType": "http",
   "ports": [
-    4725,
+    1212,
     5173,
-    4726,
-    4727,
-    4728,
-    4729,
-    7789
+    1213,
+    1214,
+    1215,
+    1216,
+    1217,
+    1218
   ],
   "services": [
     {
       "name": "server",
       "command": "npm run dev:server",
-      "port": 4725,
-      "healthUrl": "http://127.0.0.1:4725/api/health"
+      "port": 1212,
+      "healthUrl": "http://127.0.0.1:1212/api/health"
     },
     {
       "name": "web",
@@ -36,7 +37,7 @@
     "enabled": true,
     "showInDesktop": true,
     "cookieMode": "pending",
-    "notes": "多服务 monorepo，含祥钰子应用"
+    "notes": "统一经营台 monorepo，含祥钰、千帆、记账、主播分析等模块入口"
   },
   "riskLevel": "medium"
 }

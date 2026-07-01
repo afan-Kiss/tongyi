@@ -15,7 +15,7 @@ export function canUseLiveCamera(): boolean {
 export function liveCameraBlockedReason(): string {
   if (window.isSecureContext) return ''
   if (isMobileDevice()) {
-    return 'HTTP 下手机无法打开实时摄像头。请扫电脑上的 HTTPS 二维码（内网 4730 端口），首次需在浏览器点「高级」→「继续访问」信任证书。'
+    return 'HTTP 下手机无法打开实时摄像头。请扫电脑上的 HTTPS 二维码（内网 1218 端口），首次需在浏览器点「高级」→「继续访问」信任证书。'
   }
   return ''
 }
@@ -46,7 +46,7 @@ export function isLanPhotoRelay(): boolean {
   if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]') return true
   if (/^192\.168\./.test(host) || /^10\./.test(host)) return true
   if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return true
-  return window.location.port === '4730'
+  return window.location.port === '1218'
 }
 
 export function photoRelayPreviewParams(): { maxSide: number; quality: number; intervalMs: number } {

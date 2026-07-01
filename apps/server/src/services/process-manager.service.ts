@@ -270,7 +270,7 @@ function syncXiangyuBridgeConfig(root: string): XiangyuBridgeConfig {
       bridge.url = resolved.bridgeUrl
       changed = true
     }
-    if (!bridge.devtoolsPort || bridge.devtoolsPort === 4730 || bridge.devtoolsPort !== resolved.devtoolsPort) {
+    if (!bridge.devtoolsPort || bridge.devtoolsPort === 1218 || bridge.devtoolsPort !== resolved.devtoolsPort) {
       bridge.devtoolsPort = resolved.devtoolsPort
       changed = true
     }

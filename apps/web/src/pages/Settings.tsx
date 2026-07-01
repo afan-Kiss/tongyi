@@ -116,7 +116,7 @@ export const SettingsPage: React.FC = () => {
   const displayNameDraftRef = useRef('')
   const saveDisplayNameTimer = useRef<number | null>(null)
 
-  const port = status?.port || 4725
+  const port = status?.port || 1212
   const lanIp = useMemo(() => pickLanIp(status?.lanIps || []), [status?.lanIps])
   const lanBase = lanIp ? `http://${lanIp}:${port}` : `http://127.0.0.1:${port}`
   const lanUrl = `${lanBase}${PORTAL_PATH}`

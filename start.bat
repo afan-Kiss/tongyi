@@ -8,9 +8,9 @@ cd /d "%~dp0"
 
 echo ========================================
 
-echo  和田玉手镯管理系统
+echo  统一经营台 / 和田玉统一经营系统
 
-echo  出库入库(4725) + 祥钰打包拍照(内置 apps/xiangyu)
+echo  主系统(1212) + 祥钰打包拍照(内置 apps/xiangyu)
 
 echo ========================================
 
@@ -61,9 +61,9 @@ if not exist apps\xiangyu\config.json (
 
 
 set NEED_STOP=0
-netstat -ano | findstr ":4725 " | findstr "LISTENING" >nul 2>&1
+netstat -ano | findstr ":1212 " | findstr "LISTENING" >nul 2>&1
 if not errorlevel 1 set NEED_STOP=1
-netstat -ano | findstr ":4727 " | findstr "LISTENING" >nul 2>&1
+netstat -ano | findstr ":1214 " | findstr "LISTENING" >nul 2>&1
 if not errorlevel 1 set NEED_STOP=1
 
 if %NEED_STOP%==1 (
@@ -196,7 +196,7 @@ echo.
 
 echo 启动前请打开 Excel 库存表
 
-echo 本机: http://127.0.0.1:4725/inventory
+echo 本机: http://127.0.0.1:1212/inventory
 
 echo.
 
@@ -211,8 +211,8 @@ set NODE_ENV=production
 rem 运行时也给 Node 4GB 堆，避免长时间运行后 OOM
 set NODE_OPTIONS=--max-old-space-size=4096
 
-rem 允许手机访问拍照 HTTPS 端口（4730，与主服务同进程）
-netsh advfirewall firewall add rule name="Jade Mobile Camera HTTPS" dir=in action=allow protocol=TCP localport=4730 >nul 2>&1
+rem 允许手机访问拍照 HTTPS 端口（1218，与主服务同进程）
+netsh advfirewall firewall add rule name="Tongyi Mobile Camera HTTPS" dir=in action=allow protocol=TCP localport=1218 >nul 2>&1
 
 call npm run start:all
 

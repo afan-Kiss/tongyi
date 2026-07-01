@@ -105,7 +105,7 @@
         function blockedReason() {
           if (window.isSecureContext) return ''
           if (isMobile()) {
-            return 'HTTP 下手机无法打开实时摄像头。请扫电脑上的 HTTPS 二维码（内网 4730 端口），首次需在浏览器点「高级」→「继续访问」信任证书。'
+            return 'HTTP 下手机无法打开实时摄像头。请扫电脑上的 HTTPS 二维码（内网 1218 端口），首次需在浏览器点「高级」→「继续访问」信任证书。'
           }
           return ''
         }
@@ -263,7 +263,7 @@
           if (host === 'localhost' || host === '127.0.0.1') return true
           if (/^192\.168\./.test(host) || /^10\./.test(host)) return true
           if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return true
-          return location.port === '4730'
+          return location.port === '1218'
         }
 
         var previewMaxSide = isLan() ? 640 : 480
@@ -430,7 +430,7 @@
               msg = '连接超时：请确认手机与电脑同一 WiFi；内网 HTTPS 首次需点「高级」→「继续访问」信任证书'
             } else if (msg.indexOf('Failed to fetch') >= 0 || msg.indexOf('NetworkError') >= 0) {
               msg =
-                '无法连接服务器：请确认电脑 4730 端口已启动，且手机与电脑同一 WiFi；若刚扫码，先在浏览器信任 HTTPS 证书'
+                '无法连接服务器：请确认电脑 1218 端口已启动，且手机与电脑同一 WiFi；若刚扫码，先在浏览器信任 HTTPS 证书'
             }
             setOverlay(msg, false)
             certLabel.textContent = '连接失败'
